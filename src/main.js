@@ -120,7 +120,7 @@ module.exports.loop = function () {
   }
 
   // Reports
-  if (Game.time % 50 == 0) { // Every 50 ticks
+  if (Game.time % 10 == 0) { // Every 10 ticks
     console.log('=== Game Report ===');
     console.log('Energy available:', spawn.room.energyAvailable + '/' + spawn.room.energyCapacityAvailable);
     console.log('Stage:', stage);
