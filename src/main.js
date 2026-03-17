@@ -11,7 +11,6 @@ module.exports.loop = function () {
     for (let name in Memory.creeps) {
         if (!Game.creeps[name]) {
             delete Memory.creeps[name];
-            console.log('Clearing non-existing creep memory:', name);
         }
     }
 
@@ -60,12 +59,12 @@ module.exports.loop = function () {
     // Reports
     if (Game.time % 50 == 0) { // Every 50 ticks
         console.log('=== Game Report ===');
-        console.log('Energy available:', Game.spawns['Spawn1'].room.energyAvailable + '/' + Game.spawns['Spawn1'].room.energyCapacityAvailable);
+        console.log('Energy available:', spawn.room.energyAvailable + '/' + spawn.room.energyCapacityAvailable);
         console.log('Harvesters:', harvesters.length + '/' + desiredHarvesters);
         console.log('Upgraders:', upgraders.length + '/' + desiredUpgraders);
         console.log('Builders:', builders.length + '/' + desiredBuilders);
         console.log('Total creeps:', Object.keys(Game.creeps).length);
-        console.log('Controller level:', Game.spawns['Spawn1'].room.controller.level);
+        console.log('Controller level:', spawn.room.controller.level);
         console.log('===================');
     }
 };

@@ -2,13 +2,16 @@ const roleHarvester = {
 
     /** @param {Creep} creep **/
     run: function(creep) {
+        let task;
         if (creep.store.getFreeCapacity() > 0) {
+            task = 'Harvesting';
             const sources = creep.room.find(FIND_SOURCES);
             const sourceIndex = creep.memory.sourceIndex % sources.length;
             if (creep.harvest(sources[sourceIndex]) == ERR_NOT_IN_RANGE) {
                 creep.moveTo(sources[sourceIndex], { visualizePathStyle: { stroke: '#15ff00' } });
             }
         } else {
+            task = 'Delivering';
             const targets = creep.room.find(FIND_STRUCTURES, {
                 filter: (structure) => {
                     return (structure.structureType == STRUCTURE_EXTENSION || structure.structureType == STRUCTURE_SPAWN) &&
@@ -20,6 +23,10 @@ const roleHarvester = {
                     creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#000000' } });
                 }
             }
+        }
+        if (creep.memory.lastTask != task) {
+            creep.say(task);
+            creep.memory.lastTask = task;
         }
     }
 };
