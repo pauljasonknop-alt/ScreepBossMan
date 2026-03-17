@@ -3,43 +3,40 @@ const roleHauler = {
   /** @param {Creep} creep **/
   run: function (creep) {
     const spawn = Game.spawns['Spawn1'];
-    const source = Game.getObjectById(creep.memory.sourceId);
+    
+    // Auto-assign source if not set
+    if (!creep.memory.sourceId) {
+      const sources = creep.room.find(FIND_SOURCES);
+      if (sources.length > 0) {
+        creep.memory.sourceId = sources[0].id;
+      }
+    }
     
     if (creep.store.getFreeCapacity() > 0) {
-      // Priority 1: Dropped energy near assigned source
-      const droppedNearSource = source ? creep.pos.findInRange(FIND_DROPPED_RESOURCES, 10, {
-        filter: (r) => r.resourceType == RESOURCE_ENERGY && r.pos.inRangeTo(source, 5)
-      }) : [];
-      
-      // Priority 2: Energy in containers near assigned source
-      const containersNearSource = source ? source.pos.findInRange(FIND_STRUCTURES, 3, {
-        filter: (s) => s.structureType == STRUCTURE_CONTAINER && s.store.getUsedCapacity(RESOURCE_ENERGY) > 0
-      }) : [];
-      
-      // Priority 3: Dropped energy anywhere
+      // Priority 1: Find dropped energy anywhere
       const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
         filter: (r) => r.resourceType == RESOURCE_ENERGY
       });
       
-      let target = droppedNearSource.length > 0 ? droppedNearSource[0] : null;
-      if (!target && containersNearSource.length > 0) {
-        const closest = creep.pos.findClosestByPath(containersNearSource);
+      if (droppedEnergy.length > 0) {
+        const closest = creep.pos.findClosestByPath(droppedEnergy);
         if (closest) {
-          if (creep.withdraw(closest, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-            creep.moveTo(closest, { visualizePathStyle: { stroke: '#0088ff' }, reusePath: 10 }); // blue
-            return;
+          if (creep.pickup(closest) == ERR_NOT_IN_RANGE) {
+            creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
           }
         }
-      }
-      if (!target && droppedEnergy.length > 0) {
-        const closest = creep.pos.findClosestByPath(droppedEnergy);
-        target = closest;
+        return;
       }
       
-      if (target) {
-        if (creep.pickup(target) == ERR_NOT_IN_RANGE) {
-          creep.moveTo(target, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
+      // Priority 2: No dropped energy - commit to assigned source and wait
+      const source = Game.getObjectById(creep.memory.sourceId);
+      if (source) {
+        // Move to assigned source and wait for miners to drop energy
+        if (!creep.pos.inRangeTo(source, 2)) {
+          creep.moveTo(source, { visualizePathStyle: { stroke: '#0088ff' }, reusePath: 10 }); // blue - going to source
         }
+        // Stay in range and wait for energy
+        return;
       }
     } else {
       // Deliver to spawn/extensions

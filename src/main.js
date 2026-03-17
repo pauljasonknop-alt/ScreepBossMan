@@ -158,6 +158,7 @@ module.exports.loop = function () {
     console.log('Builders:', builders.length + '/' + desiredBuilders);
     console.log('Repairers:', repairers.length + '/' + desiredRepairers);
     console.log('Total creeps:', Object.keys(Game.creeps).length);
+    console.log('Harvesters:', _.filter(Game.creeps, c => c.memory.role == 'harvester').length);
     
     // Show distribution by source
     sources.forEach((source, idx) => {

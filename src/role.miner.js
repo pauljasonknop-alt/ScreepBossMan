@@ -2,25 +2,29 @@ const roleMiner = {
 
   /** @param {Creep} creep **/
   run: function (creep) {
-    const source = Game.getObjectById(creep.memory.sourceId);
-    if (source) {
-      // Find container near source
-      const containers = source.pos.findInRange(FIND_STRUCTURES, 2, { filter: s => s.structureType == STRUCTURE_CONTAINER });
-      // Find construction site for container near source
-      const containerSites = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, { filter: s => s.structureType == STRUCTURE_CONTAINER });
-      let targetPos = source.pos;
-      if (containers.length > 0) {
-        targetPos = containers[0].pos;
-      } else if (containerSites.length > 0) {
-        targetPos = containerSites[0].pos;
-      }
-      if (creep.pos.isEqualTo(targetPos)) {
-        creep.harvest(source);
-      } else {
-        creep.moveTo(targetPos, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
+    // Auto-assign source if not set
+    if (!creep.memory.sourceId) {
+      const sources = creep.room.find(FIND_SOURCES);
+      if (sources.length > 0) {
+        creep.memory.sourceId = sources[0].id;
       }
     }
-    // Miners drop energy automatically at their position
+    
+    const source = Game.getObjectById(creep.memory.sourceId);
+    if (source) {
+      // Just harvest at source position - no waiting for containers
+      if (creep.harvest(source) == ERR_NOT_IN_RANGE) {
+        creep.moveTo(source, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
+      }
+    } else {
+      // Fallback: harvest from any source
+      const sources = creep.room.find(FIND_SOURCES);
+      if (sources.length > 0) {
+        if (creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) {
+          creep.moveTo(sources[0], { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 });
+        }
+      }
+    }
   }
 };
 
