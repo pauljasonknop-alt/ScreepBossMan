@@ -1,20 +1,12 @@
-// Complete Screeps Script - Last Updated: 17-03-2026
-// Economy: Drop-Mining / Hauling setup with Stage-based scaling
-
-// ==========================================
-// ROLE DEFINITIONS
-// ==========================================
+// Updated Screeps Script - 17-03-2026
+// Fix: Multi-node distribution and Scavenger Logic
 
 const roleMiner = {
     run: function (creep) {
-        if (!creep.memory.sourceId) {
-            const sources = creep.room.find(FIND_SOURCES);
-            if (sources.length > 0) creep.memory.sourceId = sources[0].id;
-        }
         const source = Game.getObjectById(creep.memory.sourceId);
         if (source) {
             if (creep.harvest(source) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(source, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 });
+                creep.moveTo(source, { visualizePathStyle: { stroke: '#ffaa00' } });
             }
         }
     }
@@ -22,50 +14,72 @@ const roleMiner = {
 
 const roleHauler = {
     run: function (creep) {
-        const spawn = Game.spawns['Spawn1'];
         if (creep.store.getFreeCapacity() > 0) {
-            // Find assigned miner
-            const miner = creep.memory.minerId ? Game.creeps[creep.memory.minerId] : null;
-            if (miner) {
-                const droppedNearMiner = miner.pos.findInRange(FIND_DROPPED_RESOURCES, 3, {
-                    filter: (r) => r.resourceType == RESOURCE_ENERGY
-                });
-                if (droppedNearMiner.length > 0) {
-                    const closest = creep.pos.findClosestByPath(droppedNearMiner);
-                    if (creep.pickup(closest) == ERR_NOT_IN_RANGE) {
-                        creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 });
-                    }
-                    return;
-                }
-                if (!creep.pos.inRangeTo(miner, 2)) {
-                    creep.moveTo(miner, { visualizePathStyle: { stroke: '#0088ff' }, reusePath: 10 });
+            // Only look for energy near assigned source
+            const source = Game.getObjectById(creep.memory.sourceId);
+            const dropped = source.pos.findInRange(FIND_DROPPED_RESOURCES, 5, {
+                filter: r => r.resourceType == RESOURCE_ENERGY
+            });
+            
+            if (dropped.length > 0) {
+                const target = creep.pos.findClosestByPath(dropped);
+                if (creep.pickup(target) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(target, { visualizePathStyle: { stroke: '#ffaa00' } });
                 }
             } else {
-                // Fallback to dropped energy in room
-                const dropped = creep.room.find(FIND_DROPPED_RESOURCES);
-                if (dropped.length > 0) {
-                    const closest = creep.pos.findClosestByPath(dropped);
-                    if (creep.pickup(closest) == ERR_NOT_IN_RANGE) {
-                        creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 });
-                    }
-                }
+                // Wait near source if nothing to pick up
+                creep.moveTo(source, { visualizePathStyle: { stroke: '#ffffff' }, range: 3 });
             }
         } else {
-            // Delivery Logic
-            const targets = creep.room.find(FIND_STRUCTURES, {
+            const spawn = Game.spawns['Spawn1'];
+            const deliveryTargets = creep.room.find(FIND_STRUCTURES, {
                 filter: (s) => (s.structureType == STRUCTURE_EXTENSION || s.structureType == STRUCTURE_SPAWN) &&
                     s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
             });
-            if (targets.length > 0) {
-                if (creep.transfer(targets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#ffffff' }, reusePath: 10 });
+
+            if (deliveryTargets.length > 0) {
+                if (creep.transfer(deliveryTargets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(deliveryTargets[0], { visualizePathStyle: { stroke: '#ffffff' } });
                 }
             } else {
-                // Park near spawn
-                creep.moveTo(spawn.pos.x + 2, spawn.pos.y + 2);
+                // SPAWN FULL: Drop near spawn to stay productive
+                if (creep.pos.isNearTo(spawn)) {
+                    creep.drop(RESOURCE_ENERGY);
+                } else {
+                    creep.moveTo(spawn);
+                }
             }
         }
     }
+};
+
+const scavengerLogic = function (creep) {
+    // 1. Ground Energy
+    let dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES);
+    if (dropped) {
+        if (creep.pickup(dropped) == ERR_NOT_IN_RANGE) creep.moveTo(dropped);
+        return;
+    }
+
+    // 2. Storage/Containers
+    let container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+        filter: s => (s.structureType == STRUCTURE_CONTAINER || s.structureType == STRUCTURE_STORAGE) && s.store[RESOURCE_ENERGY] > 0
+    });
+    if (container) {
+        if (creep.withdraw(container, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(container);
+        return;
+    }
+
+    // 3. Spawn (only if > 300)
+    const spawn = Game.spawns['Spawn1'];
+    if (spawn.store[RESOURCE_ENERGY] > 300) {
+        if (creep.withdraw(spawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(spawn);
+        return;
+    }
+
+    // 4. Manual Mine (Fallback)
+    const sources = creep.room.find(FIND_SOURCES);
+    if (creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) creep.moveTo(sources[0]);
 };
 
 const roleUpgrader = {
@@ -75,18 +89,10 @@ const roleUpgrader = {
 
         if (creep.memory.upgrading) {
             if (creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(creep.room.controller, { visualizePathStyle: { stroke: '#8a2be2' } });
+                creep.moveTo(creep.room.controller);
             }
         } else {
-            const container = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-                filter: s => s.structureType == STRUCTURE_CONTAINER && s.store[RESOURCE_ENERGY] > 0
-            });
-            if (container) {
-                if (creep.withdraw(container, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(container);
-            } else {
-                const dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES);
-                if (creep.pickup(dropped) == ERR_NOT_IN_RANGE) creep.moveTo(dropped);
-            }
+            scavengerLogic(creep);
         }
     }
 };
@@ -97,130 +103,63 @@ const roleBuilder = {
         if (!creep.memory.building && creep.store.getFreeCapacity() == 0) creep.memory.building = true;
 
         if (creep.memory.building) {
-            const target = Game.getObjectById(Memory.primaryBuildSite);
-            if (target) {
-                if (creep.build(target) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(target, { visualizePathStyle: { stroke: '#0000ff' } });
-                }
+            const site = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
+            if (site) {
+                if (creep.build(site) == ERR_NOT_IN_RANGE) creep.moveTo(site);
             }
         } else {
-            const dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES);
-            if (creep.pickup(dropped) == ERR_NOT_IN_RANGE) creep.moveTo(dropped);
+            scavengerLogic(creep);
         }
     }
 };
-
-const roleRepairer = {
-    run: function (creep) {
-        if (creep.memory.repairing && creep.store[RESOURCE_ENERGY] == 0) creep.memory.repairing = false;
-        if (!creep.memory.repairing && creep.store.getFreeCapacity() == 0) creep.memory.repairing = true;
-
-        if (creep.memory.repairing) {
-            const targets = creep.room.find(FIND_STRUCTURES, { filter: s => s.hits < s.hitsMax });
-            if (targets.length > 0) {
-                if (creep.repair(targets[0]) == ERR_NOT_IN_RANGE) creep.moveTo(targets[0]);
-            }
-        } else {
-            const dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES);
-            if (creep.pickup(dropped) == ERR_NOT_IN_RANGE) creep.moveTo(dropped);
-        }
-    }
-};
-
-const roleHarvester = {
-    run: function (creep) {
-        if (creep.store.getFreeCapacity() > 0) {
-            const sources = creep.room.find(FIND_SOURCES);
-            if (creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) creep.moveTo(sources[0]);
-        } else {
-            const targets = creep.room.find(FIND_STRUCTURES, {
-                filter: (s) => (s.structureType == STRUCTURE_EXTENSION || s.structureType == STRUCTURE_SPAWN) &&
-                    s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-            });
-            if (targets.length > 0) {
-                if (creep.transfer(targets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(targets[0]);
-            }
-        }
-    }
-};
-
-// ==========================================
-// MAIN LOOP
-// ==========================================
 
 module.exports.loop = function () {
-    // 1. Memory Cleanup
+    // Memory Clean
     for (let name in Memory.creeps) {
-        if (!Game.creeps[name]) {
-            delete Memory.creeps[name];
-            console.log('Clearing non-existing creep memory:', name);
-        }
+        if (!Game.creeps[name]) delete Memory.creeps[name];
     }
 
     const spawn = Game.spawns['Spawn1'];
-    if (!spawn) return; // Exit if spawn is destroyed
-
     const sources = spawn.room.find(FIND_SOURCES);
-    const stage = spawn.room.controller.level;
 
-    // 2. Construction Site Management (Stage 2+)
-    if (stage >= 2 && Game.time % 20 == 0) {
-        sources.forEach(source => {
-            const containers = source.pos.findInRange(FIND_STRUCTURES, 2, { filter: s => s.structureType == STRUCTURE_CONTAINER });
-            if (containers.length == 0) {
-                const terrain = spawn.room.getTerrain();
-                const pos = { x: source.pos.x + 1, y: source.pos.y }; // Simplified placement
-                if (terrain.get(pos.x, pos.y) != TERRAIN_MASK_WALL) {
-                    spawn.room.createConstructionSite(pos.x, pos.y, STRUCTURE_CONTAINER);
-                }
-            }
-        });
-    }
+    // Population counts
+    const miners = _.filter(Game.creeps, c => c.memory.role == 'miner');
+    const haulers = _.filter(Game.creeps, c => c.memory.role == 'hauler');
 
-    // 3. Population Logic
-    const miners = _.filter(Game.creeps, (c) => c.memory.role == 'miner');
-    const haulers = _.filter(Game.creeps, (c) => c.memory.role == 'hauler');
-    const upgraders = _.filter(Game.creeps, (c) => c.memory.role == 'upgrader');
-    const builders = _.filter(Game.creeps, (c) => c.memory.role == 'builder');
-    const harvesters = _.filter(Game.creeps, (c) => c.memory.role == 'harvester');
+    // Source Management Logic
+    sources.forEach((source, index) => {
+        const minersAtSource = _.filter(miners, c => c.memory.sourceId == source.id);
+        const haulersAtSource = _.filter(haulers, c => c.memory.sourceId == source.id);
 
-    // Population Targets
-    const desiredMiners = sources.length;
-    const desiredHaulers = miners.length; // 1-to-1 pairing
-    const desiredBuilders = 2;
-    const desiredUpgraders = 2;
+        // Target: 2 miners for the first node (index 0), 1 for the second (index 1)
+        // Adjust targets here based on your node preference
+        const targetMiners = (index === 0) ? 2 : 1; 
 
-    // 4. Spawning Chain
-    if (miners.length == 0 && harvesters.length < 2) {
-        spawn.spawnCreep([WORK, CARRY, MOVE], 'Emergency' + Game.time, { memory: { role: 'harvester' } });
-    } else if (miners.length < desiredMiners) {
-        spawn.spawnCreep([WORK, WORK, MOVE], 'Miner' + Game.time, { memory: { role: 'miner' } });
-    } else if (haulers.length < desiredHaulers) {
-        // Find miner without a hauler
-        const unassignedMiner = miners.find(m => !_.any(haulers, h => h.memory.minerId == m.name));
-        if (unassignedMiner) {
-            spawn.spawnCreep([CARRY, CARRY, MOVE, MOVE], 'Hauler' + Game.time, { 
-                memory: { role: 'hauler', minerId: unassignedMiner.name } 
-            });
+        if (minersAtSource.length < targetMiners) {
+            spawn.spawnCreep([WORK, WORK, MOVE], `Miner_S${index}_${Game.time}`, 
+                { memory: { role: 'miner', sourceId: source.id } });
+        } 
+        else if (haulersAtSource.length < minersAtSource.length) {
+            spawn.spawnCreep([CARRY, CARRY, MOVE, MOVE], `Hauler_S${index}_${Game.time}`, 
+                { memory: { role: 'hauler', sourceId: source.id } });
         }
-    } else if (builders.length < desiredBuilders) {
-        spawn.spawnCreep([WORK, CARRY, MOVE], 'Builder' + Game.time, { memory: { role: 'builder' } });
-    } else if (upgraders.length < desiredUpgraders) {
-        spawn.spawnCreep([WORK, CARRY, MOVE], 'Upgrader' + Game.time, { memory: { role: 'upgrader' } });
+    });
+
+    // Spawn other roles if core economy is running
+    if (miners.length >= 2) {
+        const builders = _.filter(Game.creeps, c => c.memory.role == 'builder');
+        if (builders.length < 2) spawn.spawnCreep([WORK, CARRY, MOVE], 'Builder' + Game.time, { memory: { role: 'builder' } });
+        
+        const upgraders = _.filter(Game.creeps, c => c.memory.role == 'upgrader');
+        if (upgraders.length < 2) spawn.spawnCreep([WORK, CARRY, MOVE], 'Upgrader' + Game.time, { memory: { role: 'upgrader' } });
     }
 
-    // 5. Build Site Selection
-    const sites = spawn.room.find(FIND_CONSTRUCTION_SITES);
-    if (sites.length > 0) Memory.primaryBuildSite = sites[0].id;
-
-    // 6. Run Creep Logic
+    // Execute Creeps
     for (let name in Game.creeps) {
         const creep = Game.creeps[name];
         if (creep.memory.role == 'miner') roleMiner.run(creep);
         if (creep.memory.role == 'hauler') roleHauler.run(creep);
         if (creep.memory.role == 'upgrader') roleUpgrader.run(creep);
         if (creep.memory.role == 'builder') roleBuilder.run(creep);
-        if (creep.memory.role == 'harvester') roleHarvester.run(creep);
-        if (creep.memory.role == 'repairer') roleRepairer.run(creep);
     }
 };
