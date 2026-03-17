@@ -106,11 +106,30 @@ module.exports.loop = function () {
     const newName = 'Miner' + Game.time;
     spawn.spawnCreep([WORK, WORK, MOVE], newName, { memory: { role: 'miner', sourceId: targetSource.id } });
   }
-  // Spawn haulers - distribute to least busy source (match miners)
+  // Spawn haulers - one per miner (dedicated pairing)
   else if (haulers.length < desiredHaulers) {
-    const targetSource = findLeastBusySourceForRole('hauler');
-    const newName = 'Hauler' + Game.time;
-    spawn.spawnCreep([CARRY, CARRY, MOVE, MOVE], newName, { memory: { role: 'hauler', sourceId: targetSource.id } });
+    // Count haulers assigned to each miner
+    const haulersPerMiner = {};
+    miners.forEach(miner => {
+      haulersPerMiner[miner.name] = 0;
+    });
+    haulers.forEach(hauler => {
+      if (hauler.memory.minerId && haulersPerMiner[hauler.memory.minerId] !== undefined) {
+        haulersPerMiner[hauler.memory.minerId]++;
+      }
+    });
+
+    // Pick the miner with the fewest haulers
+    const targetMiner = miners.reduce((best, miner) => {
+      if (!best) return miner;
+      if ((haulersPerMiner[miner.name] || 0) < (haulersPerMiner[best.name] || 0)) return miner;
+      return best;
+    }, null);
+
+    if (targetMiner) {
+      const newName = 'Hauler' + Game.time;
+      spawn.spawnCreep([CARRY, CARRY, MOVE, MOVE], newName, { memory: { role: 'hauler', minerId: targetMiner.name, sourceId: targetMiner.memory.sourceId } });
+    }
   }
   // Spawn builders before upgraders and repairers (energy priority)
   else if (builders.length < desiredBuilders) {

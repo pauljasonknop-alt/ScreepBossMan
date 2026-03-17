@@ -13,9 +13,33 @@ const roleHauler = {
     }
     
     if (creep.store.getFreeCapacity() > 0) {
+      // Prefer working with a dedicated miner
+      const miner = creep.memory.minerId ? Game.creeps[creep.memory.minerId] : null;
+      if (miner) {
+        // Pickup dropped energy at the miner's position
+        const droppedNearMiner = miner.pos.findInRange(FIND_DROPPED_RESOURCES, 3, {
+          filter: (r) => r.resourceType == RESOURCE_ENERGY
+        });
+        if (droppedNearMiner.length > 0) {
+          const closest = creep.pos.findClosestByPath(droppedNearMiner);
+          if (closest) {
+            if (creep.pickup(closest) == ERR_NOT_IN_RANGE) {
+              creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
+            }
+          }
+          return;
+        }
+
+        // No dropped energy at the miner: stay near the miner and wait
+        if (!creep.pos.inRangeTo(miner, 2)) {
+          creep.moveTo(miner, { visualizePathStyle: { stroke: '#0088ff' }, reusePath: 10 }); // blue - staying with miner
+        }
+        return;
+      }
+
+      // If we have no miner (or it's gone), fall back to assigned source or dropped energy
       const source = Game.getObjectById(creep.memory.sourceId);
       if (source) {
-        // Priority 1: Pick up dropped energy near assigned source
         const droppedNearSource = source.pos.findInRange(FIND_DROPPED_RESOURCES, 5, {
           filter: (r) => r.resourceType == RESOURCE_ENERGY
         });
@@ -29,14 +53,12 @@ const roleHauler = {
           return;
         }
 
-        // No dropped energy near source: stay at source and wait
         if (!creep.pos.inRangeTo(source, 2)) {
           creep.moveTo(source, { visualizePathStyle: { stroke: '#0088ff' }, reusePath: 10 }); // blue - going to source
         }
         return;
       }
 
-      // Fallback: Pick up any dropped energy if we lost source assignment
       const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
         filter: (r) => r.resourceType == RESOURCE_ENERGY
       });
