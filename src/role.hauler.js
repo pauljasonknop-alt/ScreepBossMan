@@ -29,30 +29,25 @@ const roleHauler = {
                     creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#000000' }, reusePath: 10 }); // black
                 }
             } else {
-                // Park if no targets
-                const parkingPos = { x: spawn.pos.x + 5, y: spawn.pos.y + 5 };
-                if (!creep.pos.isEqualTo(parkingPos)) {
-                    creep.moveTo(parkingPos, { visualizePathStyle: { stroke: '#888888' }, reusePath: 10 }); // gray
-                }
-            }        } else {
-            // If spawn/extensions are full, deliver to needy creeps
-            const needyCreeps = creep.room.find(FIND_MY_CREEPS, {
-                filter: (c) => c.store.getFreeCapacity() > 0 && c.memory.role != 'miner' && c.memory.role != 'hauler'
-            });
-            if (needyCreeps.length > 0) {
-                const closest = creep.pos.findClosestByPath(needyCreeps);
-                if (closest) {
-                    if (creep.transfer(closest, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                        creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
+                // If spawn/extensions are full, deliver to needy creeps
+                const needyCreeps = creep.room.find(FIND_MY_CREEPS, {
+                    filter: (c) => c.store.getFreeCapacity() > 0 && c.memory.role != 'miner' && c.memory.role != 'hauler'
+                });
+                if (needyCreeps.length > 0) {
+                    const closest = creep.pos.findClosestByPath(needyCreeps);
+                    if (closest) {
+                        if (creep.transfer(closest, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                            creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
+                        }
+                    }
+                } else {
+                    // Park
+                    const parkingPos = { x: spawn.pos.x + 5, y: spawn.pos.y + 5 };
+                    if (!creep.pos.isEqualTo(parkingPos)) {
+                        creep.moveTo(parkingPos, { visualizePathStyle: { stroke: '#888888' }, reusePath: 10 }); // gray
                     }
                 }
-            } else {
-                // Park
-                const parkingPos = { x: spawn.pos.x + 5, y: spawn.pos.y + 5 };
-                if (!creep.pos.isEqualTo(parkingPos)) {
-                    creep.moveTo(parkingPos, { visualizePathStyle: { stroke: '#888888' }, reusePath: 10 }); // gray
-                }
-            }        }
+            }
     }
 };
 
