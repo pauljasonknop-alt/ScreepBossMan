@@ -1,22 +1,35 @@
-const roleUpgrader = {
+const roleRepairer = {
 
     /** @param {Creep} creep **/
     run: function(creep) {
         const spawn = Game.spawns['Spawn1'];
-        if (creep.memory.upgrading && creep.store[RESOURCE_ENERGY] == 0) {
-            creep.memory.upgrading = false;
+        if (creep.memory.repairing && creep.store[RESOURCE_ENERGY] == 0) {
+            creep.memory.repairing = false;
         }
-        if (!creep.memory.upgrading && creep.store.getFreeCapacity() == 0) {
-            creep.memory.upgrading = true;
+        if (!creep.memory.repairing && creep.store.getFreeCapacity() == 0) {
+            creep.memory.repairing = true;
         }
 
         let task;
         let pathColor;
-        if (creep.memory.upgrading) {
-            task = 'Upgrading';
-            pathColor = '#8a2be2'; // violet
-            if (creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(creep.room.controller, { visualizePathStyle: { stroke: pathColor }, reusePath: 10 });
+        if (creep.memory.repairing) {
+            const targets = creep.room.find(FIND_STRUCTURES, {
+                filter: (structure) => structure.hits < structure.hitsMax
+            });
+            if (targets.length) {
+                task = 'Repairing';
+                pathColor = '#ff0000'; // red
+                if (creep.repair(targets[0]) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: pathColor }, reusePath: 10 });
+                }
+            } else {
+                // Park
+                task = 'Parking';
+                pathColor = '#888888'; // gray
+                const parkingPos = { x: spawn.pos.x + 2, y: spawn.pos.y + 5 };
+                if (!creep.pos.isEqualTo(parkingPos)) {
+                    creep.moveTo(parkingPos, { visualizePathStyle: { stroke: pathColor }, reusePath: 10 });
+                }
             }
         } else {
             const targets = creep.room.find(FIND_STRUCTURES, {
@@ -36,7 +49,7 @@ const roleUpgrader = {
                 // Park
                 task = 'Parking';
                 pathColor = '#888888'; // gray
-                const parkingPos = { x: spawn.pos.x + 1, y: spawn.pos.y + 5 };
+                const parkingPos = { x: spawn.pos.x + 2, y: spawn.pos.y + 5 };
                 if (!creep.pos.isEqualTo(parkingPos)) {
                     creep.moveTo(parkingPos, { visualizePathStyle: { stroke: pathColor }, reusePath: 10 });
                 }
@@ -49,4 +62,4 @@ const roleUpgrader = {
     }
 };
 
-module.exports = roleUpgrader;
+module.exports = roleRepairer;
