@@ -23,6 +23,7 @@ module.exports.loop = function () {
   Memory.stage = stage; // Store stage in memory for respawn continuity
   const emergencyReserve = 200; // Energy reserve for emergency harvester spawn
   Memory.emergencyReserve = emergencyReserve;
+  Memory.lastEnergyTick = Memory.lastEnergyTick || Game.time;
 
   const sources = spawn.room.find(FIND_SOURCES);
 
@@ -49,6 +50,11 @@ module.exports.loop = function () {
             }
         });
     }
+  const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
+  const haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
+  const upgraders = _.filter(Game.creeps, (creep) => creep.memory.role == 'upgrader');
+  const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
+  const repairers = _.filter(Game.creeps, (creep) => creep.memory.role == 'repairer');
 
   // Desired counts based on stage
   const desiredMiners = Math.min(2, sources.length);
