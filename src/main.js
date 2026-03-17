@@ -19,6 +19,8 @@ module.exports.loop = function () {
 
     const spawn = Game.spawns['Spawn1'];
     const controller = spawn.room.controller;
+    const stage = controller.level;
+    Memory.stage = stage; // Store stage in memory for respawn continuity
     const emergencyReserve = 200; // Energy reserve for emergency harvester spawn
     Memory.emergencyReserve = emergencyReserve;
 
