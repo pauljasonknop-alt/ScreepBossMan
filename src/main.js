@@ -58,7 +58,7 @@ module.exports.loop = function () {
     }
 
     // Reports
-    if (Game.time % 10 == 0) { // Every 10 ticks
+    if (Game.time % 50 == 0) { // Every 50 ticks
         console.log('=== Game Report ===');
         console.log('Energy available:', Game.spawns['Spawn1'].room.energyAvailable + '/' + Game.spawns['Spawn1'].room.energyCapacityAvailable);
         console.log('Harvesters:', harvesters.length + '/' + desiredHarvesters);
