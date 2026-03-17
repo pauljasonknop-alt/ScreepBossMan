@@ -6,7 +6,7 @@ const roleHarvester = {
             const sources = creep.room.find(FIND_SOURCES);
             const sourceIndex = creep.memory.sourceIndex % sources.length;
             if (creep.harvest(sources[sourceIndex]) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(sources[sourceIndex], { visualizePathStyle: { stroke: '#ffaa00' } });
+                creep.moveTo(sources[sourceIndex], { visualizePathStyle: { stroke: '#15ff00' } });
             }
         } else {
             const targets = creep.room.find(FIND_STRUCTURES, {
@@ -17,7 +17,7 @@ const roleHarvester = {
             });
             if (targets.length > 0) {
                 if (creep.transfer(targets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#ffffff' } });
+                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#000000' } });
                 }
             }
         }
