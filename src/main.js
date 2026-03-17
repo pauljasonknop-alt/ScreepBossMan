@@ -57,11 +57,38 @@ module.exports.loop = function () {
   const repairers = _.filter(Game.creeps, (creep) => creep.memory.role == 'repairer');
 
   // Desired counts based on stage
-  const desiredMiners = Math.min(2, sources.length);
-  const desiredHaulers = 4;
+  // 2 miners per source, 1 hauler per miner
+  const desiredMiners = 2 * sources.length;
+  const desiredHaulers = desiredMiners;  // 1 hauler per miner
   const desiredUpgraders = 2;
   const desiredBuilders = 3;
   const desiredRepairers = stage >= 2 ? 1 : 0;
+  
+  // Building priority: track primary target site
+  Memory.primaryBuildSite = Memory.primaryBuildSite || null;
+  const allSites = spawn.room.find(FIND_CONSTRUCTION_SITES);
+  if (allSites.length > 0) {
+    if (!Memory.primaryBuildSite || !Game.getObjectById(Memory.primaryBuildSite)) {
+      // No current target, pick the closest one
+      Memory.primaryBuildSite = allSites[0].id;
+    }
+  } else {
+    Memory.primaryBuildSite = null;
+  }
+
+  // Helper: Find source with fewest assigned creeps of a given role
+  const findLeastBusySourceForRole = (role) => {
+    let minCount = Infinity;
+    let targetSource = sources[0];
+    sources.forEach(source => {
+      const count = _.filter(Game.creeps, c => c.memory.role == role && c.memory.sourceId == source.id).length;
+      if (count < minCount) {
+        minCount = count;
+        targetSource = source;
+      }
+    });
+    return targetSource;
+  };
 
 // Emergency harvester if no miners or haulers and no energy income for 50 ticks
     if (miners.length == 0 && haulers.length == 0 && Game.time - Memory.lastEnergyTick > 50 && spawn.energy >= 200) {
@@ -69,26 +96,27 @@ module.exports.loop = function () {
     spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'harvester', sourceIndex: 0 } });
   }
 
-  // Spawn miners
+  // Spawn miners - distribute to least busy source
   if (miners.length < desiredMiners) {
-    const sourceIndex = miners.length;
+    const targetSource = findLeastBusySourceForRole('miner');
     const newName = 'Miner' + Game.time;
-    spawn.spawnCreep([WORK, WORK, MOVE], newName, { memory: { role: 'miner', sourceId: sources[sourceIndex].id } });
+    spawn.spawnCreep([WORK, WORK, MOVE], newName, { memory: { role: 'miner', sourceId: targetSource.id } });
   }
-  // Spawn haulers
+  // Spawn haulers - distribute to least busy source (match miners)
   else if (haulers.length < desiredHaulers) {
+    const targetSource = findLeastBusySourceForRole('hauler');
     const newName = 'Hauler' + Game.time;
-    spawn.spawnCreep([CARRY, CARRY, MOVE, MOVE], newName, { memory: { role: 'hauler' } });
+    spawn.spawnCreep([CARRY, CARRY, MOVE, MOVE], newName, { memory: { role: 'hauler', sourceId: targetSource.id } });
+  }
+  // Spawn builders before upgraders and repairers (energy priority)
+  else if (builders.length < desiredBuilders) {
+    const newName = 'Builder' + Game.time;
+    spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'builder' } });
   }
   // Spawn upgraders
   else if (upgraders.length < desiredUpgraders) {
     const newName = 'Upgrader' + Game.time;
     spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'upgrader' } });
-  }
-  // Spawn builders
-  else if (builders.length < desiredBuilders) {
-    const newName = 'Builder' + Game.time;
-    spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'builder' } });
   }
   // Spawn repairers
   else if (repairers.length < desiredRepairers) {
@@ -130,10 +158,25 @@ module.exports.loop = function () {
     console.log('Builders:', builders.length + '/' + desiredBuilders);
     console.log('Repairers:', repairers.length + '/' + desiredRepairers);
     console.log('Total creeps:', Object.keys(Game.creeps).length);
-    console.log('Controller level:', stage);
+    
+    // Show distribution by source
+    sources.forEach((source, idx) => {
+      const minersOnSource = _.filter(miners, c => c.memory.sourceId == source.id).length;
+      const haulersOnSource = _.filter(haulers, c => c.memory.sourceId == source.id).length;
+      console.log('Source ' + idx + ': ' + minersOnSource + ' miners, ' + haulersOnSource + ' haulers');
+    });
+    
+    // Show primary build target
+    if (Memory.primaryBuildSite) {
+      const primary = Game.getObjectById(Memory.primaryBuildSite);
+      if (primary) {
+        console.log('Building Target: ' + primary.structureType + ' at (' + primary.pos.x + ',' + primary.pos.y + ') - Progress: ' + primary.progress + '/' + primary.progressTotal);
+      }
+    } else {
+      console.log('Building Target: None');
+    }
+    
     console.log('CPU used:', Game.cpu.getUsed());
-    console.log('Memory size:', RawMemory.get().length);
-    console.log('Creeps:', Object.keys(Game.creeps).map(name => name + '(' + Game.creeps[name].memory.role + ')').join(', '));
     console.log('===================');
   }
 };

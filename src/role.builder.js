@@ -13,15 +13,17 @@ const roleBuilder = {
     let task;
     let pathColor;
     if (creep.memory.building) {
-      const targets = creep.room.find(FIND_CONSTRUCTION_SITES);
-      if (targets.length) {
-        task = 'Building';
+      // Focus on primary build site if it exists
+      let target = Memory.primaryBuildSite ? Game.getObjectById(Memory.primaryBuildSite) : null;
+      
+      if (target) {
+        task = 'Building (Primary)';
         pathColor = '#0000ff'; // bright blue
-        if (creep.build(targets[0]) == ERR_NOT_IN_RANGE) {
-          creep.moveTo(targets[0], { visualizePathStyle: { stroke: pathColor }, reusePath: 10 });
+        if (creep.build(target) == ERR_NOT_IN_RANGE) {
+          creep.moveTo(target, { visualizePathStyle: { stroke: pathColor }, reusePath: 10 });
         }
       } else {
-        // No construction sites, harvest instead
+        // No primary target, harvest instead
         task = 'Harvesting';
         pathColor = '#ffff00'; // yellow
         const sources = creep.room.find(FIND_SOURCES);
