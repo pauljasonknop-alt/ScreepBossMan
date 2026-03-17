@@ -3,15 +3,18 @@ const roleHarvester = {
     /** @param {Creep} creep **/
     run: function(creep) {
         let task;
+        let pathColor;
         if (creep.store.getFreeCapacity() > 0) {
             task = 'Harvesting';
+            pathColor = '#ffff00'; // yellow
             const sources = creep.room.find(FIND_SOURCES);
             const sourceIndex = creep.memory.sourceIndex % sources.length;
             if (creep.harvest(sources[sourceIndex]) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(sources[sourceIndex], { visualizePathStyle: { stroke: '#15ff00' } });
+                creep.moveTo(sources[sourceIndex], { visualizePathStyle: { stroke: pathColor } });
             }
         } else {
             task = 'Delivering';
+            pathColor = '#000000'; // black
             const targets = creep.room.find(FIND_STRUCTURES, {
                 filter: (structure) => {
                     return (structure.structureType == STRUCTURE_EXTENSION || structure.structureType == STRUCTURE_SPAWN) &&
@@ -20,7 +23,7 @@ const roleHarvester = {
             });
             if (targets.length > 0) {
                 if (creep.transfer(targets[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#000000' } });
+                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: pathColor } });
                 }
             }
         }

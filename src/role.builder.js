@@ -10,19 +10,22 @@ const roleBuilder = {
         }
 
         let task;
+        let pathColor;
         if (creep.memory.building) {
             task = 'Building';
+            pathColor = '#0000ff'; // bright blue
             const targets = creep.room.find(FIND_CONSTRUCTION_SITES);
             if (targets.length) {
                 if (creep.build(targets[0]) == ERR_NOT_IN_RANGE) {
-                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: '#15ff00' } });
+                    creep.moveTo(targets[0], { visualizePathStyle: { stroke: pathColor } });
                 }
             }
         } else {
             task = 'Harvesting';
+            pathColor = '#ffff00'; // yellow
             const sources = creep.room.find(FIND_SOURCES);
             if (creep.harvest(sources[0]) == ERR_NOT_IN_RANGE) {
-                creep.moveTo(sources[0], { visualizePathStyle: { stroke: '#000000' } });
+                creep.moveTo(sources[0], { visualizePathStyle: { stroke: pathColor } });
             }
         }
         if (creep.memory.lastTask != task) {
