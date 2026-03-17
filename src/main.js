@@ -57,9 +57,9 @@ module.exports.loop = function () {
   const repairers = _.filter(Game.creeps, (creep) => creep.memory.role == 'repairer');
 
   // Desired counts based on stage
-  // 2 miners per source, 1 hauler per miner
-  const desiredMiners = 2 * sources.length;
-  const desiredHaulers = desiredMiners;  // 1 hauler per miner
+  // 1 miner per source, 1 hauler per source
+  const desiredMiners = 1 * sources.length;
+  const desiredHaulers = desiredMiners;  // 1 hauler per miner (1 per source)
   const desiredUpgraders = 2;
   const desiredBuilders = 3;
   const desiredRepairers = stage >= 2 ? 1 : 0;
@@ -90,10 +90,14 @@ module.exports.loop = function () {
     return targetSource;
   };
 
-// Emergency harvester if no miners or haulers and no energy income for 50 ticks
-    if (miners.length == 0 && haulers.length == 0 && Game.time - Memory.lastEnergyTick > 50 && spawn.energy >= 200) {
-    const newName = 'EmergencyHarvester' + Game.time;
-    spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'harvester', sourceIndex: 0 } });
+// Emergency harvester - only if no miners available for energy production
+  // Harvesters die out naturally once miners are spawned
+  if (miners.length == 0 && spawn.energy >= 200) {
+    const harvesters = _.filter(Game.creeps, c => c.memory.role == 'harvester');
+    if (harvesters.length == 0) {
+      const newName = 'EmergencyHarvester' + Game.time;
+      spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'harvester', sourceIndex: 0 } });
+    }
   }
 
   // Spawn miners - distribute to least busy source
@@ -149,7 +153,7 @@ module.exports.loop = function () {
 
   // Reports
   if (Game.time % 10 == 0) { // Every 10 ticks
-    console.log('=== Game Report ===');
+    console.log('=== Game Report [Tick ' + Game.time + '] ===');
     console.log('Energy available:', spawn.room.energyAvailable + '/' + spawn.room.energyCapacityAvailable);
     console.log('Stage:', stage);
     console.log('Miners:', miners.length + '/' + desiredMiners);
@@ -157,8 +161,8 @@ module.exports.loop = function () {
     console.log('Upgraders:', upgraders.length + '/' + desiredUpgraders);
     console.log('Builders:', builders.length + '/' + desiredBuilders);
     console.log('Repairers:', repairers.length + '/' + desiredRepairers);
+    console.log('Harvesters (Emergency):', _.filter(Game.creeps, c => c.memory.role == 'harvester').length);
     console.log('Total creeps:', Object.keys(Game.creeps).length);
-    console.log('Harvesters:', _.filter(Game.creeps, c => c.memory.role == 'harvester').length);
     
     // Show distribution by source
     sources.forEach((source, idx) => {

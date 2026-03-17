@@ -13,11 +13,33 @@ const roleHauler = {
     }
     
     if (creep.store.getFreeCapacity() > 0) {
-      // Priority 1: Find dropped energy anywhere
+      const source = Game.getObjectById(creep.memory.sourceId);
+      if (source) {
+        // Priority 1: Pick up dropped energy near assigned source
+        const droppedNearSource = source.pos.findInRange(FIND_DROPPED_RESOURCES, 5, {
+          filter: (r) => r.resourceType == RESOURCE_ENERGY
+        });
+        if (droppedNearSource.length > 0) {
+          const closest = creep.pos.findClosestByPath(droppedNearSource);
+          if (closest) {
+            if (creep.pickup(closest) == ERR_NOT_IN_RANGE) {
+              creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
+            }
+          }
+          return;
+        }
+
+        // No dropped energy near source: stay at source and wait
+        if (!creep.pos.inRangeTo(source, 2)) {
+          creep.moveTo(source, { visualizePathStyle: { stroke: '#0088ff' }, reusePath: 10 }); // blue - going to source
+        }
+        return;
+      }
+
+      // Fallback: Pick up any dropped energy if we lost source assignment
       const droppedEnergy = creep.room.find(FIND_DROPPED_RESOURCES, {
         filter: (r) => r.resourceType == RESOURCE_ENERGY
       });
-      
       if (droppedEnergy.length > 0) {
         const closest = creep.pos.findClosestByPath(droppedEnergy);
         if (closest) {
@@ -25,17 +47,6 @@ const roleHauler = {
             creep.moveTo(closest, { visualizePathStyle: { stroke: '#ffff00' }, reusePath: 10 }); // yellow
           }
         }
-        return;
-      }
-      
-      // Priority 2: No dropped energy - commit to assigned source and wait
-      const source = Game.getObjectById(creep.memory.sourceId);
-      if (source) {
-        // Move to assigned source and wait for miners to drop energy
-        if (!creep.pos.inRangeTo(source, 2)) {
-          creep.moveTo(source, { visualizePathStyle: { stroke: '#0088ff' }, reusePath: 10 }); // blue - going to source
-        }
-        // Stay in range and wait for energy
         return;
       }
     } else {
