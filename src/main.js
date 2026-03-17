@@ -24,14 +24,31 @@ module.exports.loop = function () {
   const emergencyReserve = 200; // Energy reserve for emergency harvester spawn
   Memory.emergencyReserve = emergencyReserve;
 
-  // Spawn creeps
-  const miners = _.filter(Game.creeps, (creep) => creep.memory.role == 'miner');
-  const haulers = _.filter(Game.creeps, (creep) => creep.memory.role == 'hauler');
-  const upgraders = _.filter(Game.creeps, (creep) => creep.memory.role == 'upgrader');
-  const builders = _.filter(Game.creeps, (creep) => creep.memory.role == 'builder');
-  const repairers = _.filter(Game.creeps, (creep) => creep.memory.role == 'repairer');
-
   const sources = spawn.room.find(FIND_SOURCES);
+
+    // Auto build containers near sources at stage 2+
+    if (stage >= 2) {
+        sources.forEach(source => {
+            const nearbyContainers = source.pos.findInRange(FIND_STRUCTURES, 2, { filter: s => s.structureType == STRUCTURE_CONTAINER });
+            const nearbySites = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, { filter: s => s.structureType == STRUCTURE_CONTAINER });
+            if (nearbyContainers.length == 0 && nearbySites.length == 0 && spawn.energy >= 250) {
+                // Find a free adjacent position
+                const adjacentPositions = [
+                    { x: source.pos.x + 1, y: source.pos.y },
+                    { x: source.pos.x - 1, y: source.pos.y },
+                    { x: source.pos.x, y: source.pos.y + 1 },
+                    { x: source.pos.x, y: source.pos.y - 1 }
+                ];
+                for (let pos of adjacentPositions) {
+                    const terrain = source.room.getTerrain();
+                    if (terrain.get(pos.x, pos.y) != TERRAIN_MASK_WALL) {
+                        const result = source.room.createConstructionSite(pos.x, pos.y, STRUCTURE_CONTAINER);
+                        if (result == OK) break;
+                    }
+                }
+            }
+        });
+    }
 
   // Desired counts based on stage
   const desiredMiners = Math.min(2, sources.length);
@@ -40,8 +57,8 @@ module.exports.loop = function () {
   const desiredBuilders = 3;
   const desiredRepairers = stage >= 2 ? 1 : 0;
 
-  // Emergency harvester if no miners or haulers
-  if (miners.length == 0 && haulers.length == 0 && spawn.energy >= 200) {
+// Emergency harvester if no miners or haulers and no energy income for 50 ticks
+    if (miners.length == 0 && haulers.length == 0 && Game.time - Memory.lastEnergyTick > 50 && spawn.energy >= 200) {
     const newName = 'EmergencyHarvester' + Game.time;
     spawn.spawnCreep([WORK, CARRY, MOVE], newName, { memory: { role: 'harvester', sourceIndex: 0 } });
   }
@@ -110,6 +127,7 @@ module.exports.loop = function () {
     console.log('Controller level:', stage);
     console.log('CPU used:', Game.cpu.getUsed());
     console.log('Memory size:', RawMemory.get().length);
+    console.log('Creeps:', Object.keys(Game.creeps).map(name => name + '(' + Game.creeps[name].memory.role + ')').join(', '));
     console.log('===================');
   }
 };
