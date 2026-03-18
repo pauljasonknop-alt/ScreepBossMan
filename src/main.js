@@ -203,7 +203,7 @@ module.exports.loop = function () {
                 workerEnergyLogic(c, spawn);
             } else {
                 if (c.memory.role == 'builder') {
-                    creep.memory.intent = "Building Construction Site";
+                    c.memory.intent = "Building Construction Site";
                     let site = c.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
                     if (site) { if (c.build(site) == ERR_NOT_IN_RANGE) c.moveTo(site); return; }
                 }
