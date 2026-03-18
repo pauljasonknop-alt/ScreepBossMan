@@ -42,32 +42,55 @@ const roleMiner = {
 
 const roleHauler = {
     run: function(creep) {
-        if (creep.store.getFreeCapacity() > 0) {
-            // 1. Priority: Floor scraps first
+        // --- 1. STATE MANAGEMENT ---
+        // If we are hauling and run out of energy, stop hauling
+        if (creep.memory.hauling && creep.store[RESOURCE_ENERGY] == 0) {
+            creep.memory.hauling = false;
+            creep.say('🔄 Pickup');
+        }
+        // If we are NOT hauling and we are full, start hauling
+        if (!creep.memory.hauling && creep.store.getFreeCapacity() == 0) {
+            creep.memory.hauling = true;
+            creep.say('🚚 Deliver');
+        }
+
+        // --- 2. EXECUTION ---
+        if (!creep.memory.hauling) {
+            // PICKUP PHASE: Only go back to nodes if not in "Delivery Mode"
+            
+            // Priority A: Floor scraps
             let drop = creep.pos.findClosestByRange(FIND_DROPPED_RESOURCES, {filter: r => r.amount > 50});
             if (drop) {
-                if (creep.pickup(drop) == ERR_NOT_IN_RANGE) creep.moveTo(drop);
+                if (creep.pickup(drop) == ERR_NOT_IN_RANGE) creep.moveTo(drop, {visualizePathStyle: {stroke: '#ffaa00'}});
                 return;
             }
-            // 2. Get from Node Storage
+            // Priority B: Node Storage
             let source = Game.getObjectById(creep.memory.sourceId);
             let container = source.pos.findInRange(FIND_STRUCTURES, 2, {filter: s => s.structureType == STRUCTURE_CONTAINER})[0];
             if (container && container.store[RESOURCE_ENERGY] > 0) {
-                if (creep.withdraw(container, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(container);
+                if (creep.withdraw(container, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(container, {visualizePathStyle: {stroke: '#ffaa00'}});
             }
         } else {
-            // 3. Deliver to Spawn/Extensions
+            // DELIVERY PHASE: Empty the entire pockets before leaving the base
+            
+            // A. Primary: Fill Spawn & Extensions
             let target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
                 filter: (s) => (s.structureType == STRUCTURE_EXTENSION || s.structureType == STRUCTURE_SPAWN) &&
                                s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
             });
+
             if (target) {
-                if (creep.transfer(target, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(target);
+                if (creep.transfer(target, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(target, {visualizePathStyle: {stroke: '#00ff00'}});
+                }
             } else {
-                // 4. Extensions Full: Go to Dump Zone
+                // B. Secondary: Go to Dump Zone (x, y+2)
                 let dump = getDumpPos(Game.spawns['Spawn1']);
-                if (creep.pos.isEqualTo(dump)) creep.drop(RESOURCE_ENERGY);
-                else creep.moveTo(dump);
+                if (creep.pos.isEqualTo(dump)) {
+                    creep.drop(RESOURCE_ENERGY);
+                } else {
+                    creep.moveTo(dump, {visualizePathStyle: {stroke: '#ffffff'}});
+                }
             }
         }
     }
