@@ -176,9 +176,31 @@ module.exports.loop = function () {
         if(creep.memory.role == 'upgrader') roleUpgrader.run(creep);
     }
 
-    // Overnight Log
+// --- OVERNIGHT MONITORING REPORT v2.4 ---
     if (Game.time % 20 == 0) {
         const floor = _.sum(spawn.room.find(FIND_DROPPED_RESOURCES), r => r.amount);
-        console.log(`TICK: ${Game.time} | FLOOR: ${floor} | SPAWN: ${spawn.room.energyAvailable}/${cap} | SITES: ${spawn.room.find(FIND_CONSTRUCTION_SITES).length}`);
+        
+        // 1. Calculate Storage under Miners
+        let nodeReport = "";
+        sources.forEach((s, idx) => {
+            const mCount = _.filter(Game.creeps, c => c.memory.role == 'miner' && c.memory.sourceId == s.id).length;
+            const hCount = _.filter(Game.creeps, c => c.memory.role == 'hauler' && c.memory.sourceId == s.id).length;
+            
+            // Find container near this specific source (within 2 tiles)
+            const container = s.pos.findInRange(FIND_STRUCTURES, 2, {
+                filter: st => st.structureType == STRUCTURE_CONTAINER
+            })[0];
+            
+            const storageAmount = container ? container.store[RESOURCE_ENERGY] : "N/A";
+            const storageMax = container ? container.store.getCapacity() : "";
+            
+            nodeReport += `[Node ${idx}: M:${mCount} H:${hCount} Box:${storageAmount}/${storageMax}] `;
+        });
+
+        console.log(`------------------------------------------------------------`);
+        console.log(`TICK: ${Game.time} | SPAWN: ${spawn.room.energyAvailable}/${cap} | FLOOR: ${floor}`);
+        console.log(`ASSIGNMENTS: ${nodeReport}`);
+        console.log(`SITES: ${spawn.room.find(FIND_CONSTRUCTION_SITES).length} | B:${_.filter(Game.creeps, c => c.memory.role == 'builder').length} U:${_.filter(Game.creeps, c => c.memory.role == 'upgrader').length}`);
+        console.log(`------------------------------------------------------------`);
     }
 };
