@@ -1,24 +1,22 @@
-/** * SCREEPS AUTO-BOT v3.4 (RCL 3)
- * Configuration-Driven Logic for easy population control.
+/** * SCREEPS AUTO-BOT v3.5 (RCL 3)
+ * Feature: Anti-Stall Monitoring & Intent Tracking
  */
 
 // ==========================================
 // 1. POPULATION & SETTINGS CONFIGURATION
 // ==========================================
 const SETTINGS = {
-    // Control Miners/Haulers per Node index [0, 1, 2...]
     nodes: [
-        { miners: 2, haulers: 2 }, // Node 0 (Index 0)
-        { miners: 2, haulers: 2 }  // Node 1 (Index 1) - Heavy mining
+        { miners: 2, haulers: 2 }, // Node 0
+        { miners: 2, haulers: 2 }  // Node 1
     ],
-    // Control Global Workers
     builders: 4,
     upgraders: 1,
     
-    // Efficiency Toggles
-    purgeLowLevel: true,    // Kill old creeps to upgrade them when spawn is full
-    fullTicksToPurge: 100,  // How long to wait before purging
-    dumpOffset: { x: 0, y: 2 } // Where to drop energy (relative to spawn)
+    purgeLowLevel: true,
+    fullTicksToPurge: 100,
+    dumpOffset: { x: 0, y: 2 },
+    stallThreshold: 5 // Ticks before logging a stall
 };
 
 // ==========================================
@@ -27,18 +25,13 @@ const SETTINGS = {
 
 const getBody = function(role, room) {
     let cap = room.energyCapacityAvailable;
-    
-    // Miner: Max efficiency is 5x WORK + 1x MOVE (550 cost)
     if (role === 'miner') {
         return (cap >= 550) ? [WORK, WORK, WORK, WORK, WORK, MOVE] : [WORK, WORK, MOVE];
     }
-    
-    // Dynamic Scaling for Haulers and Workers
     let body = [];
     let cost = 0;
     let part = (role === 'hauler') ? [CARRY, MOVE] : [WORK, CARRY, MOVE];
     let partCost = _.sum(part, p => BODYPART_COST[p]);
-    
     while (cost + partCost <= cap && body.length < 48) {
         body.push(...part);
         cost += partCost;
@@ -46,12 +39,39 @@ const getBody = function(role, room) {
     return body;
 };
 
-const getDumpPos = function(spawn) {
-    return new RoomPosition(
-        spawn.pos.x + SETTINGS.dumpOffset.x, 
-        spawn.pos.y + SETTINGS.dumpOffset.y, 
-        spawn.room.name
-    );
+const getDumpPos = (spawn) => new RoomPosition(spawn.pos.x + SETTINGS.dumpOffset.x, spawn.pos.y + SETTINGS.dumpOffset.y, spawn.room.name);
+
+/**
+ * Monitors if a creep has been stationary.
+ * Miners are ignored as they are meant to stay still.
+ */
+const monitorStall = function(creep) {
+    if (creep.memory.role === 'miner') return;
+
+    if (!creep.memory.lastPos) {
+        creep.memory.lastPos = { x: creep.pos.x, y: creep.pos.y };
+        creep.memory.stuckTicks = 0;
+        return;
+    }
+
+    if (creep.pos.x === creep.memory.lastPos.x && creep.pos.y === creep.memory.lastPos.y) {
+        creep.memory.stuckTicks = (creep.memory.stuckTicks || 0) + 1;
+        
+        if (creep.memory.stuckTicks >= SETTINGS.stallThreshold) {
+            let task = creep.memory.intent || "Idle/Unknown";
+            let reason = "Path blocked or no valid target";
+            
+            // Contextual guessing for the reason
+            if (creep.store.getUsedCapacity() === 0) reason = "Waiting for energy source availability";
+            if (creep.memory.hauling && creep.room.energyAvailable === creep.room.energyCapacityAvailable) reason = "Spawn/Extensions full";
+
+            console.log(`[STALL] ${creep.name} stuck for ${creep.memory.stuckTicks} ticks at (${creep.pos.x},${creep.pos.y}). Task: ${task}. Reason: ${reason}`);
+            creep.say('Stuck! 🛑');
+        }
+    } else {
+        creep.memory.lastPos = { x: creep.pos.x, y: creep.pos.y };
+        creep.memory.stuckTicks = 0;
+    }
 };
 
 // ==========================================
@@ -60,12 +80,11 @@ const getDumpPos = function(spawn) {
 
 const roleHauler = {
     run: function(creep, spawn) {
-        // State Toggle
         if (creep.memory.hauling && creep.store[RESOURCE_ENERGY] == 0) creep.memory.hauling = false;
         if (!creep.memory.hauling && creep.store.getFreeCapacity() == 0) creep.memory.hauling = true;
 
         if (!creep.memory.hauling) {
-            // PICKUP PHASE
+            creep.memory.intent = "Fetching Energy";
             let drop = creep.pos.findClosestByRange(FIND_DROPPED_RESOURCES, {filter: r => r.amount > 50});
             if (drop) {
                 if (creep.pickup(drop) == ERR_NOT_IN_RANGE) creep.moveTo(drop);
@@ -77,7 +96,7 @@ const roleHauler = {
                 if (creep.withdraw(con, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(con);
             }
         } else {
-            // DELIVERY PHASE
+            creep.memory.intent = "Filling Spawn/Extensions";
             let target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
                 filter: (s) => (s.structureType == STRUCTURE_EXTENSION || s.structureType == STRUCTURE_SPAWN) &&
                                s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
@@ -86,6 +105,7 @@ const roleHauler = {
             if (target) {
                 if (creep.transfer(target, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(target);
             } else {
+                creep.memory.intent = "Dumping at Reserve Pile";
                 let d = getDumpPos(spawn);
                 if (creep.pos.isEqualTo(d)) creep.drop(RESOURCE_ENERGY);
                 else creep.moveTo(d);
@@ -95,15 +115,13 @@ const roleHauler = {
 };
 
 const workerEnergyLogic = function(creep, spawn) {
+    creep.memory.intent = "Withdrawing from Reserve/Container";
     let d = getDumpPos(spawn);
     let pile = d.lookFor(LOOK_RESOURCES)[0];
-    
-    // 1. Pull from Dump Pile
     if (pile && pile.amount > 50) {
         if (creep.pickup(pile) == ERR_NOT_IN_RANGE) creep.moveTo(d);
         return;
     }
-    // 2. Pull from Containers
     let con = creep.pos.findClosestByRange(FIND_STRUCTURES, {
         filter: s => s.structureType == STRUCTURE_CONTAINER && s.store[RESOURCE_ENERGY] > 50
     });
@@ -117,7 +135,6 @@ const workerEnergyLogic = function(creep, spawn) {
 // ==========================================
 
 module.exports.loop = function () {
-    // Memory Cleanup
     for(let n in Memory.creeps) if(!Game.creeps[n]) delete Memory.creeps[n];
 
     let spawn = Game.spawns['Spawn1'];
@@ -125,7 +142,7 @@ module.exports.loop = function () {
     let room = spawn.room;
     let cap = room.energyCapacityAvailable;
 
-    // --- AUTO-PURGE LOW LEVEL CREEPS ---
+    // --- AUTO-PURGE ---
     if (SETTINGS.purgeLowLevel && room.energyAvailable === cap) {
         Memory.fT = (Memory.fT || 0) + 1;
         if (Memory.fT > SETTINGS.fullTicksToPurge) {
@@ -138,45 +155,47 @@ module.exports.loop = function () {
         }
     } else { Memory.fT = 0; }
 
-    // --- POPULATION MANAGEMENT ---
+    // --- POPULATION ---
     let sources = room.find(FIND_SOURCES);
-    
-    // 1. Spawning Miners and Haulers based on Node Config
     sources.forEach((s, i) => {
         let nodeCfg = SETTINGS.nodes[i] || { miners: 1, haulers: 1 };
         let m = _.filter(Game.creeps, c => c.memory.role == 'miner' && c.memory.sourceId == s.id);
         let h = _.filter(Game.creeps, c => c.memory.role == 'hauler' && c.memory.sourceId == s.id);
 
         if (m.length < nodeCfg.miners) {
-            let body = getBody('miner', room);
-            spawn.spawnCreep(body, `M${i}_L${body.length}_${Game.time%100}`, {memory: {role: 'miner', sourceId: s.id}});
+            let b = getBody('miner', room);
+            spawn.spawnCreep(b, `M${i}_L${b.length}_${Game.time%100}`, {memory: {role: 'miner', sourceId: s.id}});
         } else if (h.length < nodeCfg.haulers) {
-            let body = getBody('hauler', room);
-            spawn.spawnCreep(body, `H${i}_L${body.length}_${Game.time%100}`, {memory: {role: 'hauler', sourceId: s.id}});
+            let b = getBody('hauler', room);
+            spawn.spawnCreep(b, `H${i}_L${b.length}_${Game.time%100}`, {memory: {role: 'hauler', sourceId: s.id}});
         }
     });
 
-    // 2. Spawning Global Workers
     if (!spawn.spawning && room.energyAvailable >= cap) {
-        let b = _.filter(Game.creeps, c => c.memory.role == 'builder');
-        let u = _.filter(Game.creeps, c => c.memory.role == 'upgrader');
-
-        if (b.length < SETTINGS.builders) {
-            let body = getBody('worker', room);
-            spawn.spawnCreep(body, `B_L${body.length}_${Game.time%100}`, {memory: {role: 'builder'}});
-        } else if (u.length < SETTINGS.upgraders) {
-            let body = getBody('worker', room);
-            spawn.spawnCreep(body, `U_L${body.length}_${Game.time%100}`, {memory: {role: 'upgrader'}});
+        let bCount = _.filter(Game.creeps, c => c.memory.role == 'builder').length;
+        let uCount = _.filter(Game.creeps, c => c.memory.role == 'upgrader').length;
+        if (bCount < SETTINGS.builders) {
+            let b = getBody('worker', room);
+            spawn.spawnCreep(b, `B_L${b.length}_${Game.time%100}`, {memory: {role: 'builder'}});
+        } else if (uCount < SETTINGS.upgraders) {
+            let b = getBody('worker', room);
+            spawn.spawnCreep(b, `U_L${b.length}_${Game.time%100}`, {memory: {role: 'upgrader'}});
         }
     }
 
     // --- EXECUTION ---
     for(let name in Game.creeps) {
         let c = Game.creeps[name];
+        
+        // Anti-Stall Check
+        monitorStall(c);
+
         if (c.memory.role == 'miner') {
+            c.memory.intent = "Mining Source";
             let s = Game.getObjectById(c.memory.sourceId);
             if (c.harvest(s) == ERR_NOT_IN_RANGE) c.moveTo(s);
         }
+        
         if (c.memory.role == 'hauler') roleHauler.run(c, spawn);
         
         if (c.memory.role == 'builder' || c.memory.role == 'upgrader') {
@@ -184,9 +203,11 @@ module.exports.loop = function () {
                 workerEnergyLogic(c, spawn);
             } else {
                 if (c.memory.role == 'builder') {
+                    creep.memory.intent = "Building Construction Site";
                     let site = c.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
                     if (site) { if (c.build(site) == ERR_NOT_IN_RANGE) c.moveTo(site); return; }
                 }
+                c.memory.intent = "Upgrading Controller";
                 if (c.upgradeController(room.controller) == ERR_NOT_IN_RANGE) c.moveTo(room.controller);
             }
         }
@@ -198,29 +219,17 @@ module.exports.loop = function () {
         console.log(`\n============== ROOM REPORT [TICK ${Game.time}] ==============`);
         console.log(`RCL: ${room.controller.level} | Next: ${room.controller.progress}/${room.controller.progressTotal} (${progress}%)`);
         console.log(`ENERGY: ${room.energyAvailable}/${cap} | FULL TICKS: ${Memory.fT || 0}`);
-        
-        console.log(`-- CREEP LEVELS --`);
         ['miner', 'hauler', 'builder', 'upgrader'].forEach(r => {
             let cs = _.filter(Game.creeps, c => c.memory.role == r);
             console.log(`${r.toUpperCase()}S (${cs.length}): ${cs.map(c => `L${c.body.length}`).join(', ')}`);
         });
-
-        console.log(`-- NODE STORAGE --`);
         sources.forEach((s, i) => {
             let con = s.pos.findInRange(FIND_STRUCTURES, 2, {filter: st => st.structureType == STRUCTURE_CONTAINER})[0];
             console.log(`Node ${i}: ${con ? con.store[RESOURCE_ENERGY] : 0}/${con ? con.store.getCapacity() : 0}`);
         });
-
-        console.log(`-- CONSTRUCTION SITES --`);
-        let sites = room.find(FIND_CONSTRUCTION_SITES);
-        let sCounts = _.countBy(sites, s => s.structureType);
-        if (Object.keys(sCounts).length > 0) {
-            for (let type in sCounts) console.log(`${type.charAt(0).toUpperCase() + type.slice(1)}s: ${sCounts[type]}`);
-        } else { console.log("No active sites."); }
-
-        if (Game.time % 100 == 0) {
-            console.log(`>>> GCL: ${Game.gcl.level} - PROGRESS: ${Math.round((Game.gcl.progress/Game.gcl.progressTotal)*100)}% <<<`);
-        }
+        let sCounts = _.countBy(room.find(FIND_CONSTRUCTION_SITES), s => s.structureType);
+        for (let type in sCounts) console.log(`${type.charAt(0).toUpperCase() + type.slice(1)}s: ${sCounts[type]}`);
+        if (Game.time % 100 == 0) console.log(`>>> GCL: ${Game.gcl.level} - PROGRESS: ${Math.round((Game.gcl.progress/Game.gcl.progressTotal)*100)}% <<<`);
         console.log(`============================================================\n`);
     }
 };
