@@ -1,5 +1,5 @@
-/** * SCREEPS OVERNIGHT AUTO-BOT v2.2
- * Focus: Hauler Floor-Cleaning & Worker Container-Prioritization
+/** * SCREEPS OVERNIGHT AUTO-BOT v2.3
+ * Focus: Active Delivery Hunting & Worker Container-Prioritization
  */
 
 const getBody = function(role, capacity) {
@@ -22,7 +22,7 @@ const roleMiner = {
 const roleHauler = {
     run: function(creep) {
         if (creep.store.getFreeCapacity() > 0) {
-            // HAULERS ONLY: Pickup any dropped energy > 50 units
+            // 1. Pickup any dropped energy > 50 units
             let drop = creep.pos.findClosestByRange(FIND_DROPPED_RESOURCES, {
                 filter: r => r.resourceType == RESOURCE_ENERGY && r.amount > 50
             });
@@ -30,36 +30,55 @@ const roleHauler = {
                 if (creep.pickup(drop) == ERR_NOT_IN_RANGE) creep.moveTo(drop, {reusePath: 10});
                 return;
             }
-            // If no floor energy, go to assigned node
+            // 2. Go to assigned node
             let source = Game.getObjectById(creep.memory.sourceId);
             creep.moveTo(source, {range: 3, reusePath: 20});
         } else {
-            // Deliver to Spawn/Extensions
-            let target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+            // --- DELIVERY LOGIC ---
+            // A. Primary: Fill Spawn & Extensions
+            let structureTarget = creep.pos.findClosestByPath(FIND_STRUCTURES, {
                 filter: (s) => (s.structureType == STRUCTURE_EXTENSION || s.structureType == STRUCTURE_SPAWN) &&
                                s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
             });
-            if (target) {
-                if (creep.transfer(target, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(target, {reusePath: 15});
+
+            if (structureTarget) {
+                if (creep.transfer(structureTarget, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(structureTarget, {reusePath: 15});
+                }
+                return;
+            }
+
+            // B. Secondary: Hunt Builders/Upgraders that need energy
+            let workerTarget = creep.pos.findClosestByRange(FIND_MY_CREEPS, {
+                filter: (c) => (c.memory.role == 'builder' || c.memory.role == 'upgrader') && 
+                               c.store.getFreeCapacity(RESOURCE_ENERGY) > 20
+            });
+
+            if (workerTarget) {
+                if (creep.transfer(workerTarget, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                    creep.moveTo(workerTarget, {visualizePathStyle: {stroke: '#00ff00'}});
+                }
+                return;
+            }
+
+            // C. Tertiary: Drop near Spawn
+            let spawn = Game.spawns['Spawn1'];
+            if (creep.pos.isNearTo(spawn)) {
+                creep.drop(RESOURCE_ENERGY);
             } else {
-                // If Spawn/Ext full, fill Containers that aren't the source containers (optional)
-                // Or just drop at Spawn
-                let spawn = Game.spawns['Spawn1'];
-                if (creep.pos.isNearTo(spawn)) creep.drop(RESOURCE_ENERGY);
-                else creep.moveTo(spawn);
+                creep.moveTo(spawn, {reusePath: 15});
             }
         }
     }
 };
 
 const workerEnergyLogic = function(creep) {
-    // WORKERS: Priority 1 - Fullest Container
+    // 1. Priority: Fullest Container
     let containers = creep.room.find(FIND_STRUCTURES, {
         filter: s => s.structureType == STRUCTURE_CONTAINER && s.store[RESOURCE_ENERGY] > 0
     });
     
     if (containers.length > 0) {
-        // Sort by energy amount descending to get the fullest one
         containers.sort((a, b) => b.store[RESOURCE_ENERGY] - a.store[RESOURCE_ENERGY]);
         if (creep.withdraw(containers[0], RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
             creep.moveTo(containers[0], {visualizePathStyle: {stroke: '#ffaa00'}});
@@ -67,7 +86,7 @@ const workerEnergyLogic = function(creep) {
         return;
     }
 
-    // Priority 2 - Spawn Surplus
+    // 2. Priority: Spawn Surplus (only if no containers have energy)
     let spawn = Game.spawns['Spawn1'];
     if (spawn.store[RESOURCE_ENERGY] > 250) {
         if (creep.withdraw(spawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) creep.moveTo(spawn);
@@ -81,9 +100,14 @@ const roleBuilder = {
         
         if (creep.memory.building) {
             let site = creep.pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
-            if (site) { if (creep.build(site) == ERR_NOT_IN_RANGE) creep.moveTo(site, {reusePath: 15}); }
-            else { if (creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) creep.moveTo(creep.room.controller); }
-        } else { workerEnergyLogic(creep); }
+            if (site) {
+                if (creep.build(site) == ERR_NOT_IN_RANGE) creep.moveTo(site, {reusePath: 15});
+            } else {
+                if (creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) creep.moveTo(creep.room.controller);
+            }
+        } else {
+            workerEnergyLogic(creep);
+        }
     }
 };
 
@@ -96,7 +120,9 @@ const roleUpgrader = {
             if (creep.upgradeController(creep.room.controller) == ERR_NOT_IN_RANGE) {
                 creep.moveTo(creep.room.controller, {reusePath: 20});
             }
-        } else { workerEnergyLogic(creep); }
+        } else {
+            workerEnergyLogic(creep);
+        }
     }
 };
 
@@ -119,7 +145,7 @@ module.exports.loop = function () {
         }
     }
 
-    // Population
+    // Population & Spawning
     sources.forEach((source, index) => {
         let miners = _.filter(Game.creeps, c => c.memory.role == 'miner' && c.memory.sourceId == source.id);
         let haulers = _.filter(Game.creeps, c => c.memory.role == 'hauler' && c.memory.sourceId == source.id);
@@ -141,6 +167,7 @@ module.exports.loop = function () {
         }
     }
 
+    // Execution
     for(let name in Game.creeps) {
         let creep = Game.creeps[name];
         if(creep.memory.role == 'miner') roleMiner.run(creep);
@@ -149,8 +176,9 @@ module.exports.loop = function () {
         if(creep.memory.role == 'upgrader') roleUpgrader.run(creep);
     }
 
+    // Overnight Log
     if (Game.time % 20 == 0) {
         const floor = _.sum(spawn.room.find(FIND_DROPPED_RESOURCES), r => r.amount);
-        console.log(`TICK: ${Game.time} | FLOOR: ${floor} | SPAWN: ${spawn.room.energyAvailable}/${cap}`);
+        console.log(`TICK: ${Game.time} | FLOOR: ${floor} | SPAWN: ${spawn.room.energyAvailable}/${cap} | SITES: ${spawn.room.find(FIND_CONSTRUCTION_SITES).length}`);
     }
 };
