@@ -157,4 +157,33 @@ module.exports.loop = function () {
         if(creep.memory.role == 'builder') roleBuilder.run(creep);
         if(creep.memory.role == 'upgrader') roleUpgrader.run(creep);
     }
+
+    // --- OVERNIGHT MONITORING REPORT (Every 20 Ticks) ---
+    if (Game.time % 20 == 0) {
+        // 1. Calculate Energy on Floor
+        const droppedEnergy = spawn.room.find(FIND_DROPPED_RESOURCES, {
+            filter: r => r.resourceType == RESOURCE_ENERGY
+        });
+        const totalFloorEnergy = _.sum(droppedEnergy, r => r.amount);
+
+        // 2. Count Structures
+        const totalStructures = spawn.room.find(FIND_STRUCTURES).length;
+        const totalSites = spawn.room.find(FIND_CONSTRUCTION_SITES).length;
+
+        // 3. Organize Creep Node Assignment for Log
+        let nodeReport = "";
+        sources.forEach((s, idx) => {
+            const mCount = _.filter(Game.creeps, c => c.memory.role == 'miner' && c.memory.sourceId == s.id).length;
+            const hCount = _.filter(Game.creeps, c => c.memory.role == 'hauler' && c.memory.sourceId == s.id).length;
+            nodeReport += `[Node ${idx}: M:${mCount} H:${hCount}] `;
+        });
+
+        console.log(`------------------------------------------------------------`);
+        console.log(`TICK: ${Game.time} | STAGE: ${spawn.room.controller.level}`);
+        console.log(`PRODUCTION ENERGY: ${spawn.room.energyAvailable} / ${spawn.room.energyCapacityAvailable}`);
+        console.log(`FLOOR ENERGY: ${totalFloorEnergy} | STRUCTURES: ${totalStructures} | SITES: ${totalSites}`);
+        console.log(`ASSIGNMENTS: ${nodeReport}`);
+        console.log(`ROLES: B:${_.filter(Game.creeps, c => c.memory.role == 'builder').length} U:${_.filter(Game.creeps, c => c.memory.role == 'upgrader').length}`);
+        console.log(`------------------------------------------------------------`);
+    }
 };
