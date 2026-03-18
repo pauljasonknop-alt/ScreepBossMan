@@ -8,12 +8,12 @@
 const SETTINGS = {
     // Control Miners/Haulers per Node index [0, 1, 2...]
     nodes: [
-        { miners: 1, haulers: 1 }, // Node 0 (Index 0)
+        { miners: 2, haulers: 2 }, // Node 0 (Index 0)
         { miners: 2, haulers: 2 }  // Node 1 (Index 1) - Heavy mining
     ],
     // Control Global Workers
-    builders: 3,
-    upgraders: 2,
+    builders: 4,
+    upgraders: 1,
     
     // Efficiency Toggles
     purgeLowLevel: true,    // Kill old creeps to upgrade them when spawn is full
