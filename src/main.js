@@ -3,11 +3,11 @@
 // ==========================================
 const CONFIG = {
     rcl: {
-        1: { harvesters: 2, miners: 0, haulers: 0, builders: 1, upgraders: 1, repairers: 0 },
-        2: { harvesters: 0, miners: 2, haulers: 2, builders: 2, upgraders: 2, repairers: 1 },
-        3: { harvesters: 0, miners: 2, haulers: 2, builders: 2, upgraders: 2, repairers: 1 },
-        4: { harvesters: 0, miners: 2, haulers: 3, builders: 3, upgraders: 2, repairers: 1 },
-        5: { harvesters: 0, miners: 2, haulers: 3, builders: 3, upgraders: 3, repairers: 2 }
+        1: { harvesters: 2, miners: 0, haulers: 0, builders: 1, upgraders: 1, repairers: 0, fighters: 0 },
+        2: { harvesters: 0, miners: 2, haulers: 2, builders: 2, upgraders: 2, repairers: 1, fighters: 0 },
+        3: { harvesters: 0, miners: 2, haulers: 2, builders: 2, upgraders: 2, repairers: 1, fighters: 2 },
+        4: { harvesters: 0, miners: 2, haulers: 3, builders: 3, upgraders: 2, repairers: 1, fighters: 2 },
+        5: { harvesters: 0, miners: 2, haulers: 3, builders: 3, upgraders: 3, repairers: 2, fighters: 2 }
     },
     ratios: {
         worker: [WORK, CARRY, MOVE],
@@ -15,14 +15,20 @@ const CONFIG = {
         miner:  [WORK, WORK, MOVE],
         fighter: [TOUGH, MOVE, ATTACK]
     },
-    tower: { repairThreshold: 0.5, energyReserve: 200 }
+    tower: { repairThreshold: 0.5, energyReserve: 200 },
+    energyReserve: { 1: 0, 2: 0, 3: 300, 4: 300, 5: 300 }
 };
 
 // ==========================================
 // 2. HELPERS & UTILITIES
 // ==========================================
 function getBestBody(role, room) {
-    let energy = room.energyCapacityAvailable;
+    // Use capacity for max sizing, but respect energy reserve
+    let reserve = CONFIG.energyReserve[room.controller.level] || 0;
+    let availableForSpawning = Math.max(0, room.energyAvailable - reserve);
+    let energy = Math.min(room.energyCapacityAvailable, availableForSpawning);
+    
+    // Emergency fallback for first creeps
     let creepCount = _.filter(Game.creeps, c => c.room.name === room.name).length;
     if (creepCount < 2) energy = Math.min(room.energyAvailable, 300);
 
@@ -168,12 +174,10 @@ function autoBuild(room) {
 
     // NO ROADS AT RCL 1 - wait until RCL 2 with 50% progress
     if (rcl === 1) {
-        // Only build containers at RCL 1? No, wait for RCL 2
         return;
     }
     
     // CONTAINER PLACEMENT - ABSOLUTE TOP PRIORITY AT RCL 2+
-    // This runs EVERY TIME autoBuild runs, regardless of anything else
     if (rcl >= 2) {
         room.find(FIND_SOURCES).forEach(src => {
             let adj = [[-1,0],[1,0],[0,-1],[0,1]];
@@ -182,35 +186,27 @@ function autoBuild(room) {
             for (let d of adj) {
                 let x = src.pos.x + d[0], y = src.pos.y + d[1];
                 
-                // Check bounds
                 if (x < 0 || x > 49 || y < 0 || y > 49) continue;
-                
-                // Check if tile is walkable
                 if (room.getTerrain().get(x, y) === TERRAIN_MASK_WALL) continue;
                 
-                // Check if there's already a container here
                 let structures = src.pos.findInRange(FIND_STRUCTURES, 2, { 
                     filter: { structureType: STRUCTURE_CONTAINER } 
                 });
                 
                 if (structures.length > 0) {
-                    // Container already exists, no need to build
                     containerPlaced = true;
                     break;
                 }
                 
-                // Check if there's already a construction site for a container
                 let sites = src.pos.findInRange(FIND_CONSTRUCTION_SITES, 2, { 
                     filter: { structureType: STRUCTURE_CONTAINER } 
                 });
                 
                 if (sites.length > 0) {
-                    // Already building one
                     containerPlaced = true;
                     break;
                 }
                 
-                // Found an empty valid spot - place container NOW
                 let result = room.createConstructionSite(x, y, STRUCTURE_CONTAINER);
                 if (result === OK) {
                     console.log(`[BUILD] Placing container at (${x},${y}) for source at (${src.pos.x},${src.pos.y})`);
@@ -228,10 +224,8 @@ function autoBuild(room) {
     // RCL 2: Only start building roads at 50% progress
     if (rcl === 2) {
         if (progressPercent >= 50) {
-            // Basic roads from spawn to sources
             room.find(FIND_SOURCES).forEach(src => {
                 let path = spawn.pos.findPathTo(src, { ignoreCreeps: true });
-                // Build roads up to the tile before the source
                 for (let i = 0; i < path.length - 1; i++) {
                     room.createConstructionSite(path[i].x, path[i].y, STRUCTURE_ROAD);
                 }
@@ -244,7 +238,6 @@ function autoBuild(room) {
         let sources = room.find(FIND_SOURCES);
         let controller = room.controller;
         
-        // Build roads from spawn to each source (excluding source tile)
         sources.forEach(src => {
             let pathToSrc = PathFinder.search(spawn.pos, { pos: src.pos, range: 1 }).path;
             pathToSrc.forEach(step => {
@@ -252,13 +245,11 @@ function autoBuild(room) {
             });
         });
         
-        // Build roads from spawn to controller (with range 3 for upgrade spot)
         let pathToCtrl = PathFinder.search(spawn.pos, { pos: controller.pos, range: 3 }).path;
         pathToCtrl.forEach(step => {
             room.createConstructionSite(step.x, step.y, STRUCTURE_ROAD);
         });
         
-        // Build roads between each source and controller
         sources.forEach(src => {
             let pathSrcToCtrl = PathFinder.search(src.pos, { pos: controller.pos, range: 3 }).path;
             pathSrcToCtrl.forEach(step => {
@@ -266,7 +257,6 @@ function autoBuild(room) {
             });
         });
         
-        // Connect sources to each other
         for (let i = 0; i < sources.length; i++) {
             for (let j = i + 1; j < sources.length; j++) {
                 let pathSrcToSrc = PathFinder.search(sources[i].pos, { pos: sources[j].pos, range: 1 }).path;
@@ -279,14 +269,12 @@ function autoBuild(room) {
 
     // EXTENSIONS - Two rings around spawn (RCL 2+)
     if (rcl >= 2) {
-        // First ring (closest to spawn) - RCL 2
         let firstRing = [
             [-2, -2], [-2, 0], [-2, 2],
             [0, -2],           [0, 2],
             [2, -2],  [2, 0],  [2, 2]
         ];
         
-        // Second ring (further out) - RCL 3+
         let secondRing = [
             [-3, -3], [-3, -1], [-3, 1], [-3, 3],
             [-1, -3],                    [-1, 3],
@@ -294,7 +282,6 @@ function autoBuild(room) {
             [3, -3],  [3, -1],  [3, 1],  [3, 3]
         ];
         
-        // Build first ring extensions
         firstRing.forEach(p => {
             let x = spawn.pos.x + p[0], y = spawn.pos.y + p[1];
             if (x >= 0 && x < 50 && y >= 0 && y < 50) {
@@ -304,7 +291,6 @@ function autoBuild(room) {
             }
         });
         
-        // Build second ring extensions at RCL 3+
         if (rcl >= 3) {
             secondRing.forEach(p => {
                 let x = spawn.pos.x + p[0], y = spawn.pos.y + p[1];
@@ -317,7 +303,7 @@ function autoBuild(room) {
         }
     }
     
-    // TOWER PLACEMENT - RCL 3+ (PRIORITY #1)
+    // TOWER PLACEMENT - RCL 3+
     if (rcl >= 3) {
         let towers = room.find(FIND_MY_STRUCTURES, { filter: { structureType: STRUCTURE_TOWER } });
         let towerSites = room.find(FIND_CONSTRUCTION_SITES, { filter: { structureType: STRUCTURE_TOWER } });
@@ -350,7 +336,7 @@ function autoBuild(room) {
 }
 
 // ==========================================
-// 4. POPULATION MANAGER
+// 4. POPULATION MANAGER - FIXED SPAWN ORDER
 // ==========================================
 function managePopulation(spawn) {
     let room = spawn.room;
@@ -359,6 +345,7 @@ function managePopulation(spawn) {
     let sources = room.find(FIND_SOURCES);
     let creeps = _.filter(Game.creeps, c => c.room.name === room.name);
     
+    // Count current creeps by role
     let minerCount = _.filter(creeps, c => c.memory.role === 'miner').length;
     let haulerCount = _.filter(creeps, c => c.memory.role === 'hauler').length;
     let harvesterCount = _.filter(creeps, c => c.memory.role === 'harvester').length;
@@ -367,35 +354,30 @@ function managePopulation(spawn) {
     let repairerCount = _.filter(creeps, c => c.memory.role === 'repairer').length;
     let fighterCount = _.filter(creeps, c => c.memory.role === 'fighter').length;
 
+    // Calculate target counts
     let targetMiners = config.miners * sources.length;
     let targetHaulers = config.haulers * sources.length;
+    let targetHarvesters = config.harvesters * sources.length;
     let targetUpgraders = config.upgraders;
     let targetBuilders = config.builders;
     let targetRepairers = config.repairers;
+    let targetFighters = config.fighters;
 
-    let minerPercentage = targetMiners > 0 ? (minerCount / targetMiners) * 100 : 100;
-    let haulerPercentage = targetHaulers > 0 ? (haulerCount / targetHaulers) * 100 : 100;
+    // EMERGENCY DETECTION - If miners or haulers are critically low
+    let emergencyMode = (rcl >= 2 && (minerCount < 1 || haulerCount < 1));
     
-    let emergencyMode = (rcl >= 2 && (minerPercentage < 10 || haulerPercentage < 10));
-    
+    // Stagnation detection
     Memory.energyFullTicks = (room.energyAvailable >= room.energyCapacityAvailable) ? (Memory.energyFullTicks || 0) + 1 : 0;
-    if (Memory.energyFullTicks >= 50 && !spawn.spawning && !emergencyMode) {
-        if (creeps.length > 0) {
-            let weakest = _.min(creeps, c => c.body.length);
-            if (weakest && weakest.body.length < getBestBody(weakest.memory.role, room).length) {
-                weakest.suicide();
-                Memory.energyFullTicks = 0;
-                return;
-            }
-        }
-    }
-
+    
     if (spawn.spawning) return;
 
     let trySpawn = (role, memory) => {
         let body = getBestBody(role, room);
         let cost = _.sum(body, p => BODYPART_COST[p]);
-        if (room.energyAvailable >= cost) {
+        let reserve = CONFIG.energyReserve[room.controller.level] || 0;
+        let availableForSpawning = room.energyAvailable - reserve;
+        
+        if (availableForSpawning >= cost) {
             let level = body.length;
             let rolePrefix = role.slice(0,3).toUpperCase();
             let sourceInfo = memory.sIdx !== undefined ? `S${memory.sIdx}` : 'S?';
@@ -403,64 +385,56 @@ function managePopulation(spawn) {
             
             let result = spawn.spawnCreep(body, name, { memory });
             if (result === OK) {
-                console.log(`[SPAWN] ${name} (${role}) with ${level} parts for source ${memory.sIdx}`);
+                console.log(`[SPAWN] ${name} (${role}) with ${level} parts`);
                 return true;
             }
         }
         return false;
     };
 
+    // EMERGENCY MODE - Only spawn miners and haulers
     if (emergencyMode) {
-        console.log(`[EMERGENCY] Critical low: Miners ${Math.round(minerPercentage)}%, Haulers ${Math.round(haulerPercentage)}%`);
+        console.log(`[EMERGENCY] Critical: Miners ${minerCount}/${targetMiners}, Haulers ${haulerCount}/${targetHaulers}`);
         
-        if (minerCount < 2) {
-            for (let i = 0; i < sources.length; i++) {
-                let minersAtSource = _.filter(creeps, c => c.memory.role === 'miner' && c.memory.sIdx === i).length;
-                if (minersAtSource < 1) {
-                    if (trySpawn('miner', { role: 'miner', sIdx: i })) return;
-                }
+        // First, ensure each source has a miner
+        for (let i = 0; i < sources.length; i++) {
+            let minersAtSource = _.filter(creeps, c => c.memory.role === 'miner' && c.memory.sIdx === i).length;
+            if (minersAtSource < 1) {
+                if (trySpawn('miner', { role: 'miner', sIdx: i })) return;
             }
         }
         
-        if (haulerCount < 2) {
-            let miners = _.filter(creeps, c => c.memory.role === 'miner');
-            if (miners.length > 0) {
-                for (let miner of miners) {
-                    let haulersForMiner = _.filter(creeps, c => c.memory.role === 'hauler' && c.memory.minerId === miner.name).length;
-                    if (haulersForMiner < 1) {
-                        if (trySpawn('hauler', { role: 'hauler', minerId: miner.name, sIdx: miner.memory.sIdx })) return;
-                    }
-                }
-            }
-        }
-        
-        if (minerCount === 0 && harvesterCount < 2) {
-            for (let i = 0; i < sources.length; i++) {
-                if (trySpawn('harvester', { role: 'harvester', sIdx: i })) return;
+        // Then ensure each miner has a hauler
+        let miners = _.filter(creeps, c => c.memory.role === 'miner');
+        for (let miner of miners) {
+            let haulersForMiner = _.filter(creeps, c => c.memory.role === 'hauler' && c.memory.minerId === miner.name).length;
+            if (haulersForMiner < 1) {
+                if (trySpawn('hauler', { role: 'hauler', minerId: miner.name, sIdx: miner.memory.sIdx })) return;
             }
         }
         
         return;
     }
 
+    // RCL 1 - Simple harvesters
     if (rcl === 1) {
-        if (harvesterCount < config.harvesters * sources.length) {
+        if (harvesterCount < targetHarvesters) {
             let srcCounts = sources.map((s, idx) => _.filter(creeps, c => c.memory.sIdx === idx).length);
             let bestSrcIdx = srcCounts.indexOf(Math.min(...srcCounts));
-            trySpawn('harvester', { role: 'harvester', sIdx: bestSrcIdx });
-            return;
+            if (trySpawn('harvester', { role: 'harvester', sIdx: bestSrcIdx })) return;
         }
-        if (upgraderCount < config.upgraders) {
-            trySpawn('upgrader', { role: 'upgrader', sIdx: 0 });
-            return;
+        if (upgraderCount < targetUpgraders) {
+            if (trySpawn('upgrader', { role: 'upgrader', sIdx: 0 })) return;
         }
-        if (builderCount < config.builders) {
-            trySpawn('builder', { role: 'builder', sIdx: 0 });
-            return;
+        if (builderCount < targetBuilders) {
+            if (trySpawn('builder', { role: 'builder', sIdx: 0 })) return;
         }
         return;
     }
 
+    // RCL 2+ - Strict priority order
+    
+    // PRIORITY 1: Ensure each source has its required miners
     for (let i = 0; i < sources.length; i++) {
         let minersAtSource = _.filter(creeps, c => c.memory.role === 'miner' && c.memory.sIdx === i).length;
         if (minersAtSource < config.miners) {
@@ -468,6 +442,7 @@ function managePopulation(spawn) {
         }
     }
 
+    // PRIORITY 2: Ensure each miner has a hauler
     let miners = _.filter(creeps, c => c.memory.role === 'miner');
     for (let miner of miners) {
         let haulersForMiner = _.filter(creeps, c => c.memory.role === 'hauler' && c.memory.minerId === miner.name).length;
@@ -476,6 +451,7 @@ function managePopulation(spawn) {
         }
     }
 
+    // Check if we have full miner/hauler coverage
     let minersFull = true;
     for (let i = 0; i < sources.length; i++) {
         if (_.filter(creeps, c => c.memory.role === 'miner' && c.memory.sIdx === i).length < config.miners) {
@@ -492,22 +468,44 @@ function managePopulation(spawn) {
         }
     }
 
-    if (minersFull && haulersFull) {
-        if (upgraderCount < config.upgraders) {
-            if (trySpawn('upgrader', { role: 'upgrader', sIdx: 0 })) return;
+    // If miners or haulers are not full, stop here
+    if (!minersFull || !haulersFull) {
+        if (!minersFull) console.log(`[SPAWN] Need more miners (${minerCount}/${targetMiners})`);
+        if (!haulersFull) console.log(`[SPAWN] Need more haulers (${haulerCount}/${targetHaulers})`);
+        return;
+    }
+
+    // PRIORITY 3: Builders (only after miners/haulers are full)
+    if (builderCount < targetBuilders) {
+        if (trySpawn('builder', { role: 'builder', sIdx: 0 })) return;
+    }
+
+    // PRIORITY 4: Upgraders
+    if (upgraderCount < targetUpgraders) {
+        if (trySpawn('upgrader', { role: 'upgrader', sIdx: 0 })) return;
+    }
+
+    // PRIORITY 5: Repairers
+    if (repairerCount < targetRepairers) {
+        if (trySpawn('repairer', { role: 'repairer', sIdx: 0 })) return;
+    }
+
+    // PRIORITY 6: Fighters (only at RCL 3+)
+    if (rcl >= 3 && fighterCount < targetFighters) {
+        if (trySpawn('fighter', { role: 'fighter', patrolling: true, sIdx: 0 })) return;
+    }
+
+    // Auto-upgrade weak creeps when energy is full
+    if (Memory.energyFullTicks >= 50 && !emergencyMode) {
+        if (creeps.length > 0) {
+            let weakest = _.min(creeps, c => c.body.length);
+            if (weakest && weakest.body.length < getBestBody(weakest.memory.role, room).length) {
+                console.log(`[UPGRADE] Suiciding ${weakest.name} for better body`);
+                weakest.suicide();
+                Memory.energyFullTicks = 0;
+                return;
+            }
         }
-        if (builderCount < config.builders) {
-            if (trySpawn('builder', { role: 'builder', sIdx: 0 })) return;
-        }
-        if (repairerCount < config.repairers) {
-            if (trySpawn('repairer', { role: 'repairer', sIdx: 0 })) return;
-        }
-        if (rcl >= 3 && fighterCount < 2) {
-            if (trySpawn('fighter', { role: 'fighter', patrolling: true, sIdx: 0 })) return;
-        }
-    } else {
-        if (!minersFull) console.log(`[SPAWN] Waiting for miners (${minerCount}/${targetMiners}) before spawning other roles`);
-        if (!haulersFull) console.log(`[SPAWN] Waiting for haulers (${haulerCount}/${targetHaulers}) before spawning other roles`);
     }
 }
 
@@ -528,9 +526,19 @@ const ROLES = {
         }
 
         if (task === 'HARVEST') {
-            let src = creep.room.find(FIND_SOURCES)[creep.memory.sIdx || 0];
-            if (creep.harvest(src) === ERR_NOT_IN_RANGE) smartMove(creep, src, '#ffaa00');
-            announce(creep, '🌾');
+            // Get assigned source or fallback to any source
+            let src;
+            if (creep.memory.sIdx !== undefined) {
+                src = creep.room.find(FIND_SOURCES)[creep.memory.sIdx];
+            }
+            if (!src) {
+                src = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+            }
+            
+            if (src) {
+                if (creep.harvest(src) === ERR_NOT_IN_RANGE) smartMove(creep, src, '#ffaa00');
+                announce(creep, '🌾');
+            }
         } else { // TRANSFER
             // First priority: Fill spawn and extensions
             let dest = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
@@ -542,10 +550,9 @@ const ROLES = {
                 if (creep.transfer(dest, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) smartMove(creep, dest, '#ffffff');
                 announce(creep, '🚚');
             } else {
-                // Drop energy near spawn (within 3 tiles)
+                // Drop energy near spawn
                 let spawn = Game.spawns['Spawn1'];
                 if (spawn) {
-                    // Find a spot near spawn (within 3 tiles) that's empty
                     if (!creep.memory.dropTile) {
                         let terrain = creep.room.getTerrain();
                         for (let dx = -2; dx <= 2; dx++) {
@@ -593,11 +600,6 @@ const ROLES = {
             return;
         }
         
-        let currentSrc = creep.pos.findClosestByRange(FIND_SOURCES);
-        if (currentSrc && currentSrc.id !== src.id) {
-            console.log(`[MINER] ${creep.name} WARNING: Assigned to source ${creep.memory.sIdx} but near source ${roomMem.sourceIndices[currentSrc.id]}`);
-        }
-        
         if (!creep.memory.miningPos) {
             let terrain = src.room.getTerrain();
             let spawn = Game.spawns['Spawn1'];
@@ -612,7 +614,6 @@ const ROLES = {
                     let y = src.pos.y + dy;
                     
                     if (x < 0 || x > 49 || y < 0 || y > 49) continue;
-                    
                     if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
                     
                     let structures = src.room.lookForAt(LOOK_STRUCTURES, x, y);
@@ -641,7 +642,7 @@ const ROLES = {
             }
             
             if (allSpots.length === 0) {
-                console.log(`[MINER] ${creep.name} CRITICAL: No adjacent spots found for source ${creep.memory.sIdx} at (${src.pos.x},${src.pos.y})!`);
+                console.log(`[MINER] ${creep.name} CRITICAL: No adjacent spots found for source ${creep.memory.sIdx}!`);
                 return;
             }
             
@@ -676,10 +677,9 @@ const ROLES = {
                               (selectedSpot.hasRoad ? 'ROAD' : 'EMPTY'));
                 console.log(`[MINER] ${creep.name} assigned to ${spotType} spot (${selectedSpot.x},${selectedSpot.y}) for source ${creep.memory.sIdx}`);
             } else {
-                console.log(`[MINER] ${creep.name} CRITICAL: ALL ${allSpots.length} spots taken for source ${creep.memory.sIdx}!`);
+                console.log(`[MINER] ${creep.name} CRITICAL: ALL ${allSpots.length} spots taken!`);
                 if (allSpots.length > 0) {
                     creep.memory.miningPos = { x: allSpots[0].x, y: allSpots[0].y };
-                    console.log(`[MINER] ${creep.name} EMERGENCY taking spot (${allSpots[0].x},${allSpots[0].y})`);
                 }
             }
         }
@@ -691,30 +691,16 @@ const ROLES = {
                 creep.room.name
             );
             
-            let distToSrc = Math.abs(targetPos.x - src.pos.x) + Math.abs(targetPos.y - src.pos.y);
-            let isAdjacent = (distToSrc <= 1) || (Math.max(Math.abs(targetPos.x - src.pos.x), Math.abs(targetPos.y - src.pos.y)) <= 1);
-            
-            if (!isAdjacent) {
-                console.log(`[MINER] ${creep.name} ERROR: Assigned spot (${targetPos.x},${targetPos.y}) is NOT adjacent to source ${creep.memory.sIdx}!`);
-                creep.memory.miningPos = null;
-                return;
-            }
-            
             if (!creep.pos.isEqualTo(targetPos)) {
-                if (creep.memory.arrivedAtSpot) {
-                    console.log(`[MINER] ${creep.name} WARNING: Moved from spot! Staying with source ${creep.memory.sIdx}`);
-                }
-                
                 if (Game.time % 10 === 0) {
-                    console.log(`[MINER] ${creep.name} moving to spot (${targetPos.x},${targetPos.y}) for source ${creep.memory.sIdx}`);
+                    console.log(`[MINER] ${creep.name} moving to spot (${targetPos.x},${targetPos.y})`);
                 }
                 
                 creep.moveTo(targetPos, { 
                     visualizePathStyle: { stroke: '#00ff00' },
                     reusePath: 20,
                     maxRooms: 1,
-                    range: 0,
-                    ignoreCreeps: false
+                    range: 0
                 });
                 announce(creep, '🚶');
                 return;
@@ -723,32 +709,11 @@ const ROLES = {
                     console.log(`[MINER] ${creep.name} ARRIVED at spot for source ${creep.memory.sIdx}`);
                     creep.memory.arrivedAtSpot = true;
                 }
-                
-                if (creep.pos.getRangeTo(src) > 1) {
-                    console.log(`[MINER] ${creep.name} ERROR: At spot but too far from source ${creep.memory.sIdx}!`);
-                    creep.memory.miningPos = null;
-                    return;
-                }
-                
-                let creepsAtSpot = creep.room.lookForAt(LOOK_CREEPS, creep.pos);
-                if (creepsAtSpot.length > 1) {
-                    let intruder = _.find(creepsAtSpot, c => c.id !== creep.id);
-                    if (intruder) {
-                        console.log(`[MINER] ${creep.name} defending spot from ${intruder.name}`);
-                        let direction = creep.pos.getDirectionTo(intruder.pos);
-                        intruder.move(direction);
-                    }
-                }
             }
         }
         
         if (creep.harvest(src) === OK) {
             announce(creep, '⛏️');
-        } else if (creep.harvest(src) === ERR_NOT_IN_RANGE) {
-            if (creep.memory.arrivedAtSpot) {
-                console.log(`[MINER] ${creep.name} ERROR: Cannot reach source ${creep.memory.sIdx}!`);
-                creep.memory.miningPos = null;
-            }
         }
     },
 
@@ -756,62 +721,49 @@ const ROLES = {
         if (!creep.memory.task) creep.memory.task = 'COLLECT';
         let task = creep.memory.task;
         let miner = Game.creeps[creep.memory.minerId];
-        let sources = creep.room.find(FIND_SOURCES);
         
         if (!creep.memory.parkPos && miner) {
-            let minerSource = sources[creep.memory.sIdx || 0];
-            if (minerSource) {
-                let terrain = creep.room.getTerrain();
-                let sourcePos = minerSource.pos;
-                let bestParkSpot = null;
-                let bestDist = Infinity;
-                
-                for (let dx = -4; dx <= 4; dx++) {
-                    for (let dy = -4; dy <= 4; dy++) {
-                        let manhattanDist = Math.abs(dx) + Math.abs(dy);
-                        let chebyshevDist = Math.max(Math.abs(dx), Math.abs(dy));
-                        
-                        if (chebyshevDist !== 4) continue;
-                        
-                        let x = sourcePos.x + dx;
-                        let y = sourcePos.y + dy;
-                        
-                        if (x < 0 || x > 49 || y < 0 || y > 49) continue;
-                        
-                        if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
-                        
-                        let structures = creep.room.lookForAt(LOOK_STRUCTURES, x, y);
-                        if (structures.length > 0) continue;
-                        
-                        let otherHauler = _.find(Game.creeps, c => 
-                            c.memory.role === 'hauler' && 
-                            c.memory.parkPos && 
-                            c.memory.parkPos.x === x && 
-                            c.memory.parkPos.y === y
-                        );
-                        
-                        if (otherHauler && otherHauler.id !== creep.id) continue;
-                        
-                        let spawn = Game.spawns['Spawn1'];
-                        let distToSpawn = Math.abs(x - spawn.pos.x) + Math.abs(y - spawn.pos.y);
-                        
-                        if (distToSpawn < bestDist) {
-                            bestDist = distToSpawn;
-                            bestParkSpot = { x, y };
-                        }
+            let sourcePos = miner.pos;
+            let terrain = creep.room.getTerrain();
+            let bestParkSpot = null;
+            let bestDist = Infinity;
+            
+            for (let dx = -4; dx <= 4; dx++) {
+                for (let dy = -4; dy <= 4; dy++) {
+                    let chebyshevDist = Math.max(Math.abs(dx), Math.abs(dy));
+                    if (chebyshevDist !== 4) continue;
+                    
+                    let x = sourcePos.x + dx;
+                    let y = sourcePos.y + dy;
+                    
+                    if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+                    if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
+                    
+                    let structures = creep.room.lookForAt(LOOK_STRUCTURES, x, y);
+                    if (structures.length > 0) continue;
+                    
+                    let otherHauler = _.find(Game.creeps, c => 
+                        c.memory.role === 'hauler' && 
+                        c.memory.parkPos && 
+                        c.memory.parkPos.x === x && 
+                        c.memory.parkPos.y === y
+                    );
+                    
+                    if (otherHauler && otherHauler.id !== creep.id) continue;
+                    
+                    let spawn = Game.spawns['Spawn1'];
+                    let distToSpawn = Math.abs(x - spawn.pos.x) + Math.abs(y - spawn.pos.y);
+                    
+                    if (distToSpawn < bestDist) {
+                        bestDist = distToSpawn;
+                        bestParkSpot = { x, y };
                     }
                 }
-                
-                if (bestParkSpot) {
-                    creep.memory.parkPos = bestParkSpot;
-                    console.log(`[HAULER] ${creep.name} assigned parking spot (${bestParkSpot.x},${bestParkSpot.y}) for source ${creep.memory.sIdx}`);
-                } else {
-                    console.log(`[HAULER] ${creep.name} WARNING: No ideal parking spot found, using fallback`);
-                    creep.memory.parkPos = { 
-                        x: sourcePos.x + 4, 
-                        y: sourcePos.y 
-                    };
-                }
+            }
+            
+            if (bestParkSpot) {
+                creep.memory.parkPos = bestParkSpot;
+                console.log(`[HAULER] ${creep.name} parked at (${bestParkSpot.x},${bestParkSpot.y})`);
             }
         }
 
@@ -830,28 +782,13 @@ const ROLES = {
                     let target = creep.pos.findClosestByPath(dropped);
                     if (target && creep.pickup(target) === ERR_NOT_IN_RANGE) smartMove(creep, target, '#ffff00');
                     announce(creep, '⬆️');
-                } else {
-                    if (creep.memory.parkPos) {
-                        let pos = new RoomPosition(creep.memory.parkPos.x, creep.memory.parkPos.y, creep.room.name);
-                        if (!creep.pos.isEqualTo(pos)) {
-                            smartMove(creep, pos, '#888888');
-                            announce(creep, '🅿️');
-                        } else {
-                            announce(creep, '⏳ Wait');
-                        }
-                    } else {
-                        if (!creep.pos.inRangeTo(miner, 3)) {
-                            smartMove(creep, miner, '#0088ff');
-                        } else if (creep.pos.inRangeTo(miner, 2)) {
-                            let direction = creep.pos.getDirectionTo(miner);
-                            let oppositeDir = (direction + 3) % 8 + 1;
-                            creep.move(oppositeDir);
-                        }
+                } else if (creep.memory.parkPos) {
+                    let pos = new RoomPosition(creep.memory.parkPos.x, creep.memory.parkPos.y, creep.room.name);
+                    if (!creep.pos.isEqualTo(pos)) {
+                        smartMove(creep, pos, '#888888');
+                        announce(creep, '🅿️');
                     }
                 }
-            } else {
-                let dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, { filter: r => r.resourceType === RESOURCE_ENERGY });
-                if (dropped && creep.pickup(dropped) === ERR_NOT_IN_RANGE) smartMove(creep, dropped, '#ffff00');
             }
         } else { // DELIVER
             let dest = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
@@ -917,8 +854,8 @@ const ROLES = {
                 creep.memory.task = 'BUILD';
                 task = 'BUILD';
             } else {
-                creep.memory.task = 'GET_ENERGY';
-                task = 'GET_ENERGY';
+                creep.memory.task = 'UPGRADE';
+                task = 'UPGRADE';
             }
         }
 
@@ -928,20 +865,12 @@ const ROLES = {
                 if (creep.build(site) === ERR_NOT_IN_RANGE) smartMove(creep, site, '#0000ff');
                 announce(creep, '🔨');
             } else {
-                creep.memory.task = 'GET_ENERGY';
                 ROLES.upgrader(creep, roomMem);
             }
+        } else if (task === 'UPGRADE') {
+            ROLES.upgrader(creep, roomMem);
         } else {
             acquireEnergy(creep, roomMem);
-            
-            if (creep.store[RESOURCE_ENERGY] > 0) {
-                let sites = creep.room.find(FIND_CONSTRUCTION_SITES);
-                if (sites.length === 0) {
-                    if (creep.upgradeController(creep.room.controller) === ERR_NOT_IN_RANGE)
-                        smartMove(creep, creep.room.controller, '#8a2be2');
-                    announce(creep, '⚡');
-                }
-            }
         }
     },
 
@@ -1020,11 +949,18 @@ module.exports.loop = function () {
         roomMem.sourceIndices = roomMem.sourceIds.reduce((acc, id, i) => { acc[id] = i; return acc; }, {});
     }
 
+    // Emergency harvesters - only if no miners and no harvesters
     if (room.controller.level >= 2 &&
         _.filter(Game.creeps, c => c.memory.role === 'miner').length === 0 &&
         _.filter(Game.creeps, c => c.memory.role === 'harvester').length === 0 &&
         room.energyAvailable >= 200) {
-        spawn.spawnCreep([WORK, CARRY, MOVE], `HarvEm${Game.time}`, { memory: { role: 'harvester', sIdx: 0 } });
+        
+        // Spawn TWO emergency harvesters for different sources
+        for (let i = 0; i < Math.min(2, room.find(FIND_SOURCES).length); i++) {
+            let name = `HarvEm${i}_${Game.time}`;
+            spawn.spawnCreep([WORK, CARRY, MOVE], name, { memory: { role: 'harvester', sIdx: i } });
+            console.log(`[EMERGENCY] Spawned harvester ${name} for source ${i}`);
+        }
     }
 
     autoBuild(room);
