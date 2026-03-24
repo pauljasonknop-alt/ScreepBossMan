@@ -58,25 +58,19 @@ function managePopulation(spawn) {
 
     if (emergencyMode) {
         console.log(`[EMERGENCY] NO MINERS! Harvesters: ${harvesterCount}, RCL: ${rcl}`);
-        
         for (let i = 0; i < sources.length; i++) {
             let harvestersAtSource = _.filter(creeps, c => c.memory.role === 'harvester' && c.memory.sIdx === i).length;
             if (harvestersAtSource < 1) {
-                console.log(`[EMERGENCY] Need harvester for source ${i}`);
                 if (trySpawn('harvester', { role: 'harvester', sIdx: i })) return getStats();
             }
         }
-        
         let minerBody = getBestBody('miner', room);
         let minerCost = _.sum(minerBody, p => BODYPART_COST[p]);
-        
         if (room.energyAvailable >= minerCost) {
-            console.log(`[EMERGENCY] Attempting to spawn miner (cost: ${minerCost})`);
             for (let i = 0; i < sources.length; i++) {
                 if (trySpawn('miner', { role: 'miner', sIdx: i })) return getStats();
             }
         }
-        
         return getStats();
     }
 

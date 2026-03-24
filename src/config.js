@@ -25,18 +25,14 @@ const CONFIG = {
         attackRange: 20
     },
     energyReserve: { 1: 0, 2: 0, 3: 300, 4: 300, 5: 300, 6: 300, 7: 300, 8: 300 },
-    
     expansionMinRCL: 3
 };
 
-// ==========================================
-// EXPANSION SETTINGS
-// ==========================================
 const EXPANSION = {
     grid: [
-        [ 0, 0, 0 ],
-        [ 1, 0, 0 ],
-        [ 0, 0, 0 ]
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 0, 0]
     ],
     roomNameTemplate: 'W{sectorX}N{sectorY}',
     minersPerSource: 1,
