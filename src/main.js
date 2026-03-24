@@ -1,4 +1,4 @@
-// All requires use './' prefix for files in the same directory
+// All requires use './' prefix for files in the same directory 1 
 const { CONFIG, EXPANSION } = require('./config');
 const { getDropPoint, smartMove, announce, getBestBody } = require('./helpers');
 const { runTowers, autoBuild, monitorTowerHealth, emergencyTowerDefense } = require('./infrastructure');
