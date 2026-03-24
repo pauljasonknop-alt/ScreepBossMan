@@ -1,6 +1,6 @@
 const { CONFIG } = require('./config');
 const { getDropPoint, smartMove, announce } = require('./helpers');
-const { runTowers, autoBuild } = require('./infrastructure');
+const { runTowers, autoBuild, monitorTowerHealth, emergencyTowerDefense } = require('./infrastructure');
 const { managePopulation } = require('./population');
 const { scout, claimer, expansionMiner, expansionHauler, manageExpansionPopulation, getEnabledExpansionRooms, isRoomOwned, getExpansionMemory } = require('./expansion');
 
@@ -44,8 +44,10 @@ module.exports.loop = function () {
     // Run infrastructure
     autoBuild(room);
     runTowers(room);
+    monitorTowerHealth(room);           // Monitor tower status
+    emergencyTowerDefense(room, spawn); // Emergency defense
     
-    // EMERGENCY DEFENSE
+    // EMERGENCY DEFENSE - If enemies detected and we have no towers/fighters
     let enemies = room.find(FIND_HOSTILE_CREEPS);
     if (enemies.length > 0) {
         let fighters = _.filter(Game.creeps, c => c.memory.role === 'fighter' && c.room.name === room.name).length;
@@ -64,7 +66,7 @@ module.exports.loop = function () {
     // Manage population
     let stats = managePopulation(spawn);
     
-    // Visual display
+    // Visual display above spawn
     if (spawn && stats) {
         let energyPercent = Math.floor((room.energyAvailable / room.energyCapacityAvailable) * 100);
         let color = energyPercent > 75 ? '#00ff00' : (energyPercent > 30 ? '#ffff00' : '#ff0000');
@@ -166,6 +168,18 @@ module.exports.loop = function () {
             }
         }
         
+        // Tower Status Report
+        let towers = room.find(FIND_MY_STRUCTURES, { filter: { structureType: STRUCTURE_TOWER } });
+        if (towers.length > 0) {
+            console.log(`\n🗼 TOWER STATUS:`);
+            for (let tower of towers) {
+                let energyPercent = tower.store.getCapacity() > 0 ? Math.floor(tower.store[RESOURCE_ENERGY] / tower.store.getCapacity() * 100) : 0;
+                let healthPercent = Math.floor(tower.hits / tower.hitsMax * 100);
+                let statusColor = energyPercent > 50 ? '✅' : (energyPercent > 25 ? '⚠️' : '🔴');
+                console.log(`   ${statusColor} Tower at (${tower.pos.x},${tower.pos.y}): ⚡ ${energyPercent}% (${tower.store[RESOURCE_ENERGY]}/${tower.store.getCapacity()}) | ❤️ ${healthPercent}%`);
+            }
+        }
+        
         // Expansion Rooms Report
         let expansionRooms = getEnabledExpansionRooms();
         if (expansionRooms.length > 0) {
@@ -194,8 +208,6 @@ module.exports.loop = function () {
                 
                 console.log(`  ${expRoom.direction.padEnd(6)} → ${expRoomName.padEnd(10)} : ${status}${creepInfo}${energyInfo}`);
             }
-        } else {
-            console.log(`\n🌍 EXPANSION: No rooms configured. Set grid values to 1 in EXPANSION.grid`);
         }
         
         // Detailed creep list
@@ -221,16 +233,6 @@ module.exports.loop = function () {
             console.log(`\n⛏️  MINERAL: ${mineral.mineralType} | ${Math.floor(mineral.mineralAmount)}/${mineral.mineralCapacity} (${mineralPercent}%)`);
             let extractor = mineral.pos.findInRange(FIND_STRUCTURES, 0, { filter: { structureType: STRUCTURE_EXTRACTOR } })[0];
             if (extractor) console.log(`   Extractor: ACTIVE at (${extractor.pos.x},${extractor.pos.y})`);
-        }
-        
-        // Tower status
-        let towers = room.find(FIND_MY_STRUCTURES, { filter: { structureType: STRUCTURE_TOWER } });
-        if (towers.length > 0) {
-            console.log(`\n🗼 TOWERS: ${towers.length}`);
-            for (let tower of towers) {
-                let energyPercent = tower.store.getCapacity() > 0 ? Math.floor(tower.store[RESOURCE_ENERGY] / tower.store.getCapacity() * 100) : 0;
-                console.log(`   Tower at (${tower.pos.x},${tower.pos.y}): ⚡ ${energyPercent}% (${tower.store[RESOURCE_ENERGY]}/${tower.store.getCapacity()})`);
-            }
         }
         
         // Construction sites
