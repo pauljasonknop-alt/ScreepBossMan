@@ -1,18 +1,19 @@
-const { CONFIG, EXPANSION } = require('config');
-const { getDropPoint, smartMove, announce, getBestBody } = require('helpers');
-const { runTowers, autoBuild, monitorTowerHealth, emergencyTowerDefense } = require('infrastructure');
-const { managePopulation } = require('population');
-const { scout, claimer, expansionMiner, expansionHauler, manageExpansionPopulation, getEnabledExpansionRooms, isRoomOwned, getExpansionMemory } = require('expansion');
+// All requires use './' prefix for files in the same directory
+const { CONFIG, EXPANSION } = require('./config');
+const { getDropPoint, smartMove, announce, getBestBody } = require('./helpers');
+const { runTowers, autoBuild, monitorTowerHealth, emergencyTowerDefense } = require('./infrastructure');
+const { managePopulation } = require('./population');
+const { scout, claimer, expansionMiner, expansionHauler, manageExpansionPopulation, getEnabledExpansionRooms, isRoomOwned, getExpansionMemory } = require('./expansion');
 
-// Import all roles (all in root directory)
-const harvester = require('harvester');
-const miner = require('miner');
-const hauler = require('hauler');
-const upgrader = require('upgrader');
-const builder = require('builder');
-const repairer = require('repairer');
-const fighter = require('fighter');
-const mineralHauler = require('mineralHauler');
+// Import all roles (all in same directory)
+const harvester = require('./harvester');
+const miner = require('./miner');
+const hauler = require('./hauler');
+const upgrader = require('./upgrader');
+const builder = require('./builder');
+const repairer = require('./repairer');
+const fighter = require('./fighter');
+const mineralHauler = require('./mineralHauler');
 
 const ROLES = {
     harvester, miner, hauler, upgrader, builder, repairer, fighter, mineralHauler
@@ -44,8 +45,8 @@ module.exports.loop = function () {
     // Run infrastructure
     autoBuild(room);
     runTowers(room);
-    monitorTowerHealth(room);
-    emergencyTowerDefense(room, spawn);
+    if (typeof monitorTowerHealth === 'function') monitorTowerHealth(room);
+    if (typeof emergencyTowerDefense === 'function') emergencyTowerDefense(room, spawn);
     
     // EMERGENCY DEFENSE - If enemies detected and we have no towers/fighters
     let enemies = room.find(FIND_HOSTILE_CREEPS);
@@ -208,6 +209,8 @@ module.exports.loop = function () {
                 
                 console.log(`  ${expRoom.direction.padEnd(6)} → ${expRoomName.padEnd(10)} : ${status}${creepInfo}${energyInfo}`);
             }
+        } else {
+            console.log(`\n🌍 EXPANSION: No rooms configured. Set grid values to 1 in EXPANSION.grid`);
         }
         
         // Detailed creep list
