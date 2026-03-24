@@ -942,6 +942,7 @@ const ROLES = {
 
         if (task === 'COLLECT') {
             if (miner) {
+                // Check container at miner first
                 let container = miner.pos.findInRange(FIND_STRUCTURES, 3, {
                     filter: s => s.structureType === STRUCTURE_CONTAINER && s.store[RESOURCE_ENERGY] > 0
                 })[0];
@@ -954,6 +955,7 @@ const ROLES = {
                     return;
                 }
                 
+                // Then check dropped energy near miner
                 let dropped = miner.pos.findInRange(FIND_DROPPED_RESOURCES, 3, { 
                     filter: r => r.resourceType === RESOURCE_ENERGY && r.amount > 50 
                 });
@@ -966,6 +968,7 @@ const ROLES = {
                     return;
                 }
                 
+                // Nothing to collect - go to parking spot
                 if (creep.memory.parkPos) {
                     let pos = new RoomPosition(creep.memory.parkPos.x, creep.memory.parkPos.y, creep.room.name);
                     if (!creep.pos.isEqualTo(pos)) {
@@ -976,6 +979,7 @@ const ROLES = {
                     }
                 }
             } else {
+                // Miner died - pick up any dropped energy
                 let dropped = creep.pos.findClosestByPath(FIND_DROPPED_RESOURCES, { 
                     filter: r => r.resourceType === RESOURCE_ENERGY 
                 });
@@ -983,82 +987,39 @@ const ROLES = {
                     smartMove(creep, dropped, '#ffff00');
                 }
             }
-        } else {
+        } else { // DELIVER state - NEW PRIORITY ORDER
+            // PRIORITY 1: Fill Spawn and Extensions (critical for spawning)
             let dest = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
                 filter: s => (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) &&
-                              s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
             });
             
             if (dest) {
                 if (creep.transfer(dest, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
                     smartMove(creep, dest, '#aaff00');
                 }
-                announce(creep, '🚚 Fill');
+                announce(creep, '🚚 Spawn/Ext');
                 return;
             }
             
-            let extensions = creep.room.find(FIND_MY_STRUCTURES, {
-                filter: s => s.structureType === STRUCTURE_EXTENSION
+            // PRIORITY 2: Fill Towers (defense is important!)
+            let tower = creep.pos.findClosestByPath(FIND_MY_STRUCTURES, {
+                filter: s => s.structureType === STRUCTURE_TOWER &&
+                            s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
             });
             
-            let spawnStruct = creep.room.find(FIND_MY_STRUCTURES, {
-                filter: s => s.structureType === STRUCTURE_SPAWN
-            })[0];
-            
-            let allExtensionsFull = true;
-            for (let ext of extensions) {
-                if (ext.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-                    allExtensionsFull = false;
-                    break;
+            if (tower) {
+                if (creep.transfer(tower, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                    smartMove(creep, tower, '#ff8800');
                 }
+                announce(creep, '🗼 Tower');
+                return;
             }
             
-            let spawnFull = spawnStruct ? spawnStruct.store.getFreeCapacity(RESOURCE_ENERGY) === 0 : true;
-            
-            if (allExtensionsFull && spawnFull) {
-                let controller = creep.room.controller;
-                if (controller) {
-                    if (!creep.memory.controllerDropPos) {
-                        let terrain = creep.room.getTerrain();
-                        for (let dx = -2; dx <= 2; dx++) {
-                            for (let dy = -2; dy <= 2; dy++) {
-                                let x = controller.pos.x + dx;
-                                let y = controller.pos.y + dy;
-                                if (x < 0 || x > 49 || y < 0 || y > 49) continue;
-                                if (terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
-                                
-                                let structures = creep.room.lookForAt(LOOK_STRUCTURES, x, y);
-                                if (structures.length > 0) continue;
-                                
-                                creep.memory.controllerDropPos = { x, y };
-                                break;
-                            }
-                            if (creep.memory.controllerDropPos) break;
-                        }
-                    }
-                    
-                    if (creep.memory.controllerDropPos) {
-                        let pos = new RoomPosition(
-                            creep.memory.controllerDropPos.x, 
-                            creep.memory.controllerDropPos.y, 
-                            creep.room.name
-                        );
-                        
-                        if (creep.pos.isEqualTo(pos)) {
-                            creep.drop(RESOURCE_ENERGY);
-                            announce(creep, '📦 Ctrl');
-                        } else {
-                            smartMove(creep, pos, '#aaff00');
-                            announce(creep, '🚶 Ctrl');
-                        }
-                        return;
-                    }
-                }
-            }
-            
+            // PRIORITY 3: Feed workers (upgraders/builders/repairers)
             let worker = creep.pos.findClosestByPath(FIND_MY_CREEPS, {
                 filter: c => (c.memory.role === 'upgrader' || c.memory.role === 'builder' || c.memory.role === 'repairer') &&
-                             c.store.getFreeCapacity() > 0
+                            c.store.getFreeCapacity() > 0
             });
             if (worker) {
                 if (creep.transfer(worker, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
@@ -1068,6 +1029,7 @@ const ROLES = {
                 return;
             }
             
+            // PRIORITY 4: Drop at central drop point (for workers to pick up)
             if (roomMem.dropPos) {
                 let pos = new RoomPosition(roomMem.dropPos.x, roomMem.dropPos.y, creep.room.name);
                 if (creep.pos.isEqualTo(pos)) {
