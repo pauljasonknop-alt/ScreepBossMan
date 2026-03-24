@@ -1088,7 +1088,21 @@ const ROLES = {
                 if (creep.build(site) === ERR_NOT_IN_RANGE) smartMove(creep, site, '#0000ff');
                 announce(creep, '🔨');
             } else {
-                ROLES.upgrader(creep, roomMem);
+                // No sites, check for damaged walls/structures to repair
+                let damaged = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                    filter: s => (s.structureType === STRUCTURE_WALL || 
+                                s.structureType === STRUCTURE_RAMPART ||
+                                s.structureType === STRUCTURE_ROAD ||
+                                s.structureType === STRUCTURE_CONTAINER) && 
+                                s.hits < s.hitsMax * 0.5 // Below 50% health
+                });
+                if (damaged) {
+                    if (creep.repair(damaged) === ERR_NOT_IN_RANGE) smartMove(creep, damaged, '#ff0000');
+                    announce(creep, '🔧');
+                } else {
+                    // Nothing to build or repair, act as upgrader
+                    ROLES.upgrader(creep, roomMem);
+                }
             }
         } else if (task === 'UPGRADE') {
             ROLES.upgrader(creep, roomMem);
@@ -1110,13 +1124,62 @@ const ROLES = {
         }
 
         if (task === 'REPAIR') {
-            let target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
-                filter: s => s.hits < s.hitsMax && s.structureType !== STRUCTURE_WALL
-            });
+            // Find all damaged structures with priority order:
+            // 1. Ramparts (critical defense)
+            // 2. Roads (movement efficiency)
+            // 3. Containers (mining efficiency)
+            // 4. Walls (base defense)
+            // 5. Other structures
+            
+            let priority = [
+                STRUCTURE_RAMPART,
+                STRUCTURE_ROAD,
+                STRUCTURE_CONTAINER,
+                STRUCTURE_WALL,
+                STRUCTURE_EXTENSION,
+                STRUCTURE_SPAWN,
+                STRUCTURE_TOWER
+            ];
+            
+            let target = null;
+            
+            for (let type of priority) {
+                target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
+                    filter: s => s.structureType === type && 
+                                s.hits < s.hitsMax && 
+                                s.structureType !== STRUCTURE_WALL ? s.hits < s.hitsMax * 0.8 : s.hits < s.hitsMax * 0.5
+                });
+                if (target) break;
+            }
+            
+            // Also check for any critically damaged walls (< 50% health)
+            if (!target) {
+                let walls = creep.room.find(FIND_STRUCTURES, {
+                    filter: s => s.structureType === STRUCTURE_WALL && 
+                                s.hits < s.hitsMax * 0.5
+                });
+                if (walls.length > 0) {
+                    // Sort walls by lowest health first
+                    walls.sort((a, b) => a.hits - b.hits);
+                    target = walls[0];
+                }
+            }
+            
             if (target) {
-                if (creep.repair(target) === ERR_NOT_IN_RANGE) smartMove(creep, target, '#ff0000');
-                announce(creep, '🔧');
+                if (creep.repair(target) === ERR_NOT_IN_RANGE) {
+                    smartMove(creep, target, '#ff0000');
+                }
+                
+                // Show what we're repairing
+                let repairType = target.structureType === STRUCTURE_WALL ? '🧱 Wall' : 
+                                (target.structureType === STRUCTURE_RAMPART ? '🛡️ Rampart' : '🔧 Repair');
+                announce(creep, repairType);
+                
+                if (Game.time % 20 === 0 && target.hits < target.hitsMax) {
+                    console.log(`[REPAIR] ${creep.name} repairing ${target.structureType} at (${target.pos.x},${target.pos.y}) - ${Math.floor(target.hits / target.hitsMax * 100)}%`);
+                }
             } else {
+                // Nothing to repair, act as builder
                 ROLES.builder(creep, roomMem);
             }
         } else {
