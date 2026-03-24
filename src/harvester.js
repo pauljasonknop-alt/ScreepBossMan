@@ -1,4 +1,4 @@
-const { smartMove, announce } = require('../helpers');
+const { smartMove, announce } = require('helpers');
 
 module.exports = (creep, roomMem) => {
     if (!creep.memory.task) creep.memory.task = creep.store.getFreeCapacity() > 0 ? 'HARVEST' : 'TRANSFER';

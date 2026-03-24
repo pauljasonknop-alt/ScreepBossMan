@@ -34,9 +34,9 @@ const CONFIG = {
 // ==========================================
 const EXPANSION = {
     grid: [
-        [ 0, 0, 0 ],  // North (West, Center, East)
-        [ 1, 0, 0 ],  // Center (West, Center, East) - Your main room is at (1,1)
-        [ 0, 0, 0 ]   // South
+        [ 0, 0, 0 ],
+        [ 1, 0, 0 ],
+        [ 0, 0, 0 ]
     ],
     roomNameTemplate: 'W{sectorX}N{sectorY}',
     minersPerSource: 1,

@@ -1,4 +1,4 @@
-const { CONFIG } = require('./config');
+const { CONFIG } = require('config');
 
 function getBestBody(role, room) {
     let availableEnergy = room.energyAvailable;

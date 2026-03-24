@@ -1,18 +1,18 @@
-const { CONFIG } = require('./config');
-const { getDropPoint, smartMove, announce } = require('./helpers');
-const { runTowers, autoBuild, monitorTowerHealth, emergencyTowerDefense } = require('./infrastructure');
-const { managePopulation } = require('./population');
-const { scout, claimer, expansionMiner, expansionHauler, manageExpansionPopulation, getEnabledExpansionRooms, isRoomOwned, getExpansionMemory } = require('./expansion');
+const { CONFIG, EXPANSION } = require('config');
+const { getDropPoint, smartMove, announce, getBestBody } = require('helpers');
+const { runTowers, autoBuild, monitorTowerHealth, emergencyTowerDefense } = require('infrastructure');
+const { managePopulation } = require('population');
+const { scout, claimer, expansionMiner, expansionHauler, manageExpansionPopulation, getEnabledExpansionRooms, isRoomOwned, getExpansionMemory } = require('expansion');
 
-// Import all roles
-const harvester = require('./roles/harvester');
-const miner = require('./roles/miner');
-const hauler = require('./roles/hauler');
-const upgrader = require('./roles/upgrader');
-const builder = require('./roles/builder');
-const repairer = require('./roles/repairer');
-const fighter = require('./roles/fighter');
-const mineralHauler = require('./roles/mineralHauler');
+// Import all roles (all in root directory)
+const harvester = require('harvester');
+const miner = require('miner');
+const hauler = require('hauler');
+const upgrader = require('upgrader');
+const builder = require('builder');
+const repairer = require('repairer');
+const fighter = require('fighter');
+const mineralHauler = require('mineralHauler');
 
 const ROLES = {
     harvester, miner, hauler, upgrader, builder, repairer, fighter, mineralHauler
@@ -44,8 +44,8 @@ module.exports.loop = function () {
     // Run infrastructure
     autoBuild(room);
     runTowers(room);
-    monitorTowerHealth(room);           // Monitor tower status
-    emergencyTowerDefense(room, spawn); // Emergency defense
+    monitorTowerHealth(room);
+    emergencyTowerDefense(room, spawn);
     
     // EMERGENCY DEFENSE - If enemies detected and we have no towers/fighters
     let enemies = room.find(FIND_HOSTILE_CREEPS);
@@ -66,7 +66,7 @@ module.exports.loop = function () {
     // Manage population
     let stats = managePopulation(spawn);
     
-    // Visual display above spawn
+    // Visual display
     if (spawn && stats) {
         let energyPercent = Math.floor((room.energyAvailable / room.energyCapacityAvailable) * 100);
         let color = energyPercent > 75 ? '#00ff00' : (energyPercent > 30 ? '#ffff00' : '#ff0000');
