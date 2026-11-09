@@ -1,134 +1,174 @@
 'use strict';
 
-require('./require');
-require('./prototype_creep_startup_tasks');
-require('./prototype_creep_move');
-require('./prototype_roomPosition');
-require('./prototype_room_init');
-require('./prototype_room_costmatrix');
-require('./visualizer');
-require('./screepsplus');
-
-const {initProfiler, execute} = require('./brain_main');
-const {cpuLimit} = require('./brain_stats');
-const {generatePixel} = require('./pixel');
-
-global.tickLimit = cpuLimit();
-global.load = Math.round(Game.cpu.getUsed());
-
-// Init heap data
-global.data = global.data || {};
-global.data.creeps = global.data.creeps || {};
-global.data.rooms = global.data.rooms || {};
-global.data.stats = global.data.stats || {
-  cpuIdle: 0,
-  memoryFree: 0,
-  heapFree: 0,
-};
-
-console.log(`${Game.time} Script reload - Load: ${global.load} tickLimit: ${Game.cpu.tickLimit} limit: ${Game.cpu.limit} Bucket: ${Game.cpu.bucket}`);
-
-brain.stats.init();
-initProfiler();
-
 /**
- * Get cached isActive() result for a structure to reduce CPU usage
- * Cache persists across ticks and is cleared only when RCL changes
- *
- * @param {Structure} structure - Any structure object
- * @return {boolean} Whether the structure is active
+ * Entry point. Each tick:
+ *   1. memory hygiene, colony refresh, creep -> colony assignment
+ *   2. defense / towers / links        (always)
+ *   3. planner / construction          (CPU permitting)
+ *   4. expansion + spawn requests      (incl. delegation for spawnless rooms)
+ *   5. creeps, in role priority order  (low-priority roles yield under CPU pressure)
+ *   6. HUD / console report
+ * Every step is isolated: one failing room or creep never stops the others.
  */
-global.getCachedIsActive = function(structure) {
-  if (!global.isActiveCache) {
-    global.isActiveCache = {};
-  }
-  const roomName = structure.room.name;
-  if (!global.isActiveCache[roomName]) {
-    global.isActiveCache[roomName] = {};
-  }
-  if (global.isActiveCache[roomName][structure.id] === undefined) {
-    global.isActiveCache[roomName][structure.id] = structure.isActive();
-  }
-  return global.isActiveCache[roomName][structure.id];
-};
 
-/**
- * Main game loop - executed every tick
- */
-module.exports.loop = function() {
-  // Initialize global cache for isActive() calls (persists across ticks)
-  global.isActiveCache = global.isActiveCache || {};
+const config = require('./core.config');
+const log = require('./core.log');
+const move = require('./core.move');
+const Colony = require('./colony');
+const roles = require('./roles');
+const spawner = require('./mgr.spawn');
+const planner = require('./mgr.planner');
+const towers = require('./mgr.tower');
+const links = require('./mgr.link');
+const defense = require('./mgr.defense');
+const expansion = require('./mgr.expansion');
+const hud = require('./mgr.hud');
 
-  try {
-    runMainLogic();
-  } catch (error) {
-    console.log(`ERROR: Main loop crashed at tick ${Game.time}: ${error.message}`);
-    console.log(`Stack: ${error.stack}`);
-    // Continue to run stats/pixel generation even if main logic fails
-  }
+const ROLE_ORDER = Object.keys(roles);
+const YIELD_ROLES = {upgrader: true, builder: true};
+const DELEGATED_ROLES = {worker: true, defender: true};
 
-  try {
-    runPostTickOperations();
-  } catch (error) {
-    console.log(`ERROR: Post-tick operations failed at tick ${Game.time}: ${error.message}`);
-  }
-};
+const colonies = {}; // heap; rebuilt after a global reset
 
-/**
- * Run the main bot logic
- */
-function runMainLogic() {
-  if (config.main.enabled) {
-    if (config.profiler.enabled) {
-      global.profiler.wrap(() => {
-        execute();
-      });
-    } else {
-      execute();
+log.info('main', `global reset (cpu ${Game.cpu.getUsed().toFixed(1)}, bucket ${Game.cpu.bucket})`);
+
+function cleanMemory() {
+  for (const name in Memory.creeps) {
+    if (!Game.creeps[name]) {
+      delete Memory.creeps[name];
+      move.forget(name);
     }
   }
 }
 
-/**
- * Run post-tick operations (stats, pixels)
- */
-function runPostTickOperations() {
-  generatePixel();
-  brain.stats.updateCpuStats();
+function syncColonies() {
+  for (const name in Game.rooms) {
+    const room = Game.rooms[name];
+    if (room.controller && room.controller.my) {
+      if (!colonies[name]) {
+        colonies[name] = new Colony(name);
+      } else {
+        colonies[name].refresh(room);
+      }
+      if (!Memory.username) {
+        Memory.username = room.controller.owner.username;
+      }
+    }
+  }
+  for (const name of Object.keys(colonies)) {
+    const room = Game.rooms[name];
+    if (!room || !room.controller || !room.controller.my) {
+      delete colonies[name];
+    }
+  }
+  return Object.values(colonies);
+}
 
-  if (config.nextRoom.resourceStats) {
-    updateResourceStats();
+/** Give creeps from older code (or with broken memory) a role we know. */
+function adopt(creep) {
+  const fallbackHome = colonies[creep.room.name] ? creep.room.name : Object.keys(colonies)[0];
+  if (!fallbackHome) return;
+  const parts = (t) => creep.getActiveBodyparts(t);
+  let role;
+  if (parts(CLAIM)) role = 'claimer';
+  else if (parts(ATTACK) || parts(RANGED_ATTACK)) role = 'defender';
+  else if (parts(WORK) && !parts(CARRY)) role = 'miner';
+  else if (!parts(WORK) && parts(CARRY)) role = 'hauler';
+  else role = 'worker';
+  if (role === 'claimer') {
+    creep.suicide(); // claimers without a target are useless
+    return;
+  }
+  creep.memory = {role, home: fallbackHome, v: 2};
+  log.info('adopt', `${creep.name} -> ${role} @${fallbackHome}`);
+}
+
+function assignCreeps() {
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.memory.v !== 2 || !roles[creep.memory.role]) {
+      adopt(creep);
+    }
+    const colony = colonies[creep.memory.home];
+    if (colony) {
+      colony.addCreep(creep);
+    }
   }
 }
 
-/**
- * Update resource usage statistics with exponential smoothing
- */
-function updateResourceStats() {
-  const statsDivider = config.nextRoom.resourceStatsDivider;
-  const cpuLimit = Game.cpu.limit;
-  const currentCPUUsed = Game.cpu.getUsed();
-  const currentIdleCPU = cpuLimit - currentCPUUsed;
-
-  // CPU stats
-  global.data.stats.cpuIdle = ((statsDivider - 1) * global.data.stats.cpuIdle + currentIdleCPU) / statsDivider;
-  global.data.stats.cpuUsed = global.data.stats.cpuUsed || cpuLimit;
-  global.data.stats.cpuUsed = ((statsDivider - 1) * global.data.stats.cpuUsed + currentCPUUsed) / statsDivider;
-
-  // Heap stats
-  const heapStatistics = Game.cpu.getHeapStatistics();
-  const heapLimit = heapStatistics.heap_size_limit;
-  const currentHeapUsed = heapStatistics.used_heap_size + heapStatistics.externally_allocated_size;
-  const currentHeapFree = heapLimit - currentHeapUsed;
-  global.data.stats.heapFree = ((statsDivider - 1) * global.data.stats.heapFree + currentHeapFree) / statsDivider;
-  global.data.stats.heapUsed = global.data.stats.heapUsed || heapLimit;
-  global.data.stats.heapUsed = ((statsDivider - 1) * global.data.stats.heapUsed + currentHeapUsed) / statsDivider;
-
-  // Memory stats
-  const MEMORY_LIMIT = 2000000; // 2MB Screeps memory limit
-  const currentMemoryUsed = RawMemory.get().length;
-  const currentMemoryFree = MEMORY_LIMIT - currentMemoryUsed;
-  global.data.stats.memoryFree = ((statsDivider - 1) * global.data.stats.memoryFree + currentMemoryFree) / statsDivider;
-  global.data.stats.memoryUsed = global.data.stats.memoryUsed || MEMORY_LIMIT;
-  global.data.stats.memoryUsed = ((statsDivider - 1) * global.data.stats.memoryUsed + currentMemoryUsed) / statsDivider;
+function updateIntel() {
+  if (Game.time % 20 !== 0) return;
+  if (!Memory.intel) Memory.intel = {};
+  for (const name in Game.rooms) {
+    const c = Game.rooms[name].controller;
+    if (c && c.owner && !c.my) {
+      Memory.intel[name] = {owner: c.owner.username, level: c.level, t: Game.time};
+    } else if (Memory.intel[name]) {
+      delete Memory.intel[name];
+    }
+  }
 }
+
+function delegateSpawnless(list) {
+  for (const colony of list) {
+    if (colony.spawns.length) continue;
+    const helper = expansion.findHelper(colony.name, list, 0);
+    if (!helper) continue;
+    for (const req of spawner.requests(colony)) {
+      if (DELEGATED_ROLES[req.role]) {
+        helper.spawnRequests.push(Object.assign({}, req, {home: colony.name}));
+      }
+    }
+  }
+}
+
+function runCreeps() {
+  const byRole = {};
+  for (const name in Game.creeps) {
+    const creep = Game.creeps[name];
+    if (creep.spawning) continue;
+    (byRole[creep.memory.role] || (byRole[creep.memory.role] = [])).push(creep);
+  }
+  const overBudget = () => Game.cpu.bucket < config.cpu.lowBucket && Game.cpu.getUsed() > Game.cpu.limit;
+  for (const role of ROLE_ORDER) {
+    const list = byRole[role];
+    if (!list) continue;
+    if (YIELD_ROLES[role] && overBudget()) continue;
+    for (const creep of list) {
+      const colony = colonies[creep.memory.home];
+      if (!colony && role !== 'claimer') {
+        // Home lost: try to make it useful wherever it is.
+        creep.memory.v = 0;
+        continue;
+      }
+      log.safe(`${role} ${creep.name}`, () => roles[role].run(creep, colony));
+    }
+  }
+}
+
+module.exports.loop = function() {
+  if (!Memory.rooms) Memory.rooms = {};
+  cleanMemory();
+  const list = syncColonies();
+  assignCreeps();
+  updateIntel();
+
+  for (const colony of list) {
+    log.safe(`defense ${colony.name}`, () => defense.run(colony));
+    log.safe(`towers ${colony.name}`, () => towers.run(colony));
+    log.safe(`links ${colony.name}`, () => links.run(colony));
+  }
+  for (const colony of list) {
+    log.safe(`planner ${colony.name}`, () => planner.run(colony));
+  }
+
+  log.safe('expansion', () => expansion.run(list));
+  log.safe('delegate', () => delegateSpawnless(list));
+  for (const colony of list) {
+    log.safe(`spawn ${colony.name}`, () => spawner.run(colony));
+  }
+
+  runCreeps();
+
+  log.safe('hud', () => hud.run(list, Game.cpu.getUsed()));
+};
