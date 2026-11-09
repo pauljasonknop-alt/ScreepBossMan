@@ -22,6 +22,8 @@ const RESET_EVERY = opt('--reset-every', 0);
 const INVADER_AT = opt('--invader-at', 0);
 const LEGACY = args.includes('--legacy');
 const FAST = opt('--fast', 1);
+const NEIGHBORS = args.includes('--neighbors');
+const GCL = opt('--gcl', 1);
 
 // ------------------------------------------------------------------ constants
 const C = {
@@ -92,7 +94,7 @@ const HITS = {spawn: 5000, extension: 1000, road: 5000, container: 250000, stora
 const CAPACITY = {spawn: 300, storage: 1000000, tower: 1000, link: 800, container: 2000, terminal: 300000};
 
 // ------------------------------------------------------------------ world
-const ROOM = 'W1N1';
+const ROOM = 'W2N2'; // no highways / keeper rooms in its 3x3
 let idSeq = 1;
 const objects = new Map();
 const nextId = () => (idSeq++).toString(16).padStart(8, '0');
@@ -705,14 +707,26 @@ global.Game = {
   flags: {},
   rooms: {[ROOM]: room},
   constructionSites: {},
-  gcl: {level: 1, progress: 0, progressTotal: 1000000},
+  gcl: {level: GCL, progress: 0, progressTotal: 1000000},
   cpu: {limit: 20, tickLimit: 500, bucket: 10000, getUsed: () => Number(process.hrtime.bigint() - BigInt(cpuStart)) / 1e6,
     getHeapStatistics: () => ({})},
   map: {
     getRoomTerrain: () => terrain,
-    getRoomLinearDistance: () => 0,
-    findRoute: () => [],
+    getRoomLinearDistance: (a, b) => {
+      const p = parseRoom(a);
+      const q = parseRoom(b);
+      return Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y));
+    },
+    // Rooms connect orthogonally; WALLED rooms have no exits at all.
+    findRoute: (a, b) => {
+      if (WALLED.has(b) || WALLED.has(a)) return ERR_NO_PATH;
+      const p = parseRoom(a);
+      const q = parseRoom(b);
+      const steps = Math.abs(p.x - q.x) + Math.abs(p.y - q.y);
+      return new Array(steps).fill(0).map(() => ({exit: 1, room: b}));
+    },
     describeExits: () => ({}),
+    getRoomStatus: () => ({status: 'normal'}),
   },
   getObjectById: (id) => objects.get(id) || null,
   notify() {},
@@ -732,6 +746,41 @@ new Source(40, 35);
 new Mineral(8, 40);
 const controller = new StructureController(25, 8);
 makeStructure(25, 25, 'spawn');
+
+function parseRoom(name) {
+  const m = /^([WE])(\d+)([NS])(\d+)$/.exec(name);
+  return {x: m[1] === 'W' ? -m[2] - 1 : +m[2], y: m[3] === 'N' ? -m[4] - 1 : +m[4]};
+}
+const WALLED = new Set(NEIGHBORS ? ['W3N3'] : []);
+
+// --neighbors: visible fake rooms around ROOM with different traits.
+function fakeRoom(name, spec) {
+  const pos = (x, y) => new RoomPosition(x, y, name);
+  const sources = new Array(spec.src || 0).fill(0).map((_, i) => ({id: 'src' + name + i, pos: pos(10 + i * 20, 10), energy: 3000}));
+  Game.rooms[name] = {
+    name, visual: room.visual, energyAvailable: 0, energyCapacityAvailable: 0,
+    controller: spec.noCtrl ? undefined : {pos: pos(25, 25), my: false, level: spec.owner ? 4 : 0,
+      owner: spec.owner ? {username: spec.owner} : undefined,
+      reservation: spec.reserver ? {username: spec.reserver, ticksToEnd: 4000} : undefined},
+    getTerrain: () => terrain,
+    find(type) {
+      if (type === FIND_SOURCES) return sources;
+      if (type === FIND_MINERALS) return [{mineralType: spec.min || 'H', pos: pos(40, 40)}];
+      if (type === FIND_STRUCTURES) return spec.sk ? [{structureType: 'keeperLair', pos: pos(5, 5)}] : [];
+      return [];
+    },
+  };
+}
+if (NEIGHBORS) {
+  fakeRoom('W1N2', {src: 2, min: 'X'}); // best: 2 sources + catalyst
+  fakeRoom('W3N2', {src: 1, min: 'O'});
+  fakeRoom('W2N1', {src: 2, min: 'H'}); // same mineral as home
+  fakeRoom('W2N3', {src: 2, owner: 'enemy'}); // owned -> skip
+  fakeRoom('W1N1', {src: 1, reserver: 'Invader'}); // reserved -> skip
+  fakeRoom('W1N3', {src: 2, min: 'U'}); // diagonal (2 hops)
+  fakeRoom('W3N1', {src: 1, sk: true}); // keepers -> skip
+  // W3N3 is WALLED (no route) and never visible
+}
 
 if (LEGACY) {
   // creeps from "old code" with unknown roles
@@ -847,7 +896,7 @@ for (let t = 1; t <= TICKS; t++) {
   // Memory must survive serialization like the real game.
   global.Memory = JSON.parse(JSON.stringify(Memory));
   endOfTick();
-  if (process.env.DUMP && t === +process.env.DUMP) { for (const c of Object.values(Game.creeps)) realLog(c.name, JSON.stringify(c.pos), JSON.stringify(c.store), JSON.stringify(c.memory)); for (const r of room.find(FIND_DROPPED_RESOURCES)) realLog("pile", JSON.stringify(r.pos), r.amount); realLog(JSON.stringify(Memory.rooms.W1N1.plan.src), JSON.stringify(Memory.rooms.W1N1.plan.ctrl)); }
+  if (process.env.DUMP && t === +process.env.DUMP) { for (const c of Object.values(Game.creeps)) realLog(c.name, JSON.stringify(c.pos), JSON.stringify(c.store), JSON.stringify(c.memory)); for (const r of room.find(FIND_DROPPED_RESOURCES)) realLog("pile", JSON.stringify(r.pos), r.amount); realLog(JSON.stringify(Memory.rooms[ROOM].plan.src), JSON.stringify(Memory.rooms[ROOM].plan.ctrl)); }
   if (t % 1000 === 0) {
     const roles = {};
     for (const c of Object.values(Game.creeps)) roles[c.memory.role] = (roles[c.memory.role] || 0) + 1;
@@ -856,6 +905,7 @@ for (let t = 1; t <= TICKS; t++) {
   }
 }
 
+if (global.expansionReport) { console.log = realLog; global.expansionReport(); }
 const sorted = stats.cpu.slice().sort((a, b) => a - b);
 realLog('\n=== SIM SUMMARY ===');
 realLog(`ticks ${Game.time}  wall ${(Date.now() - t0) / 1000}s  errors ${stats.errors}  safeModes ${stats.safeModes}  invadersKilled ${stats.killed || 0}`);

@@ -36,7 +36,7 @@ stop the rest.
 The Screeps module system has no folders, so prefixes group the files.
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `core.config.js` | **All tunables.** Start here. |
 | `core.cache.js` | Per-tick and heap caches (structures by type/position) |
 | `core.move.js` | `travelTo`: PathFinder with cached paths and cost matrices, stuck detection, avoids hostile rooms |
@@ -49,10 +49,12 @@ The Screeps module system has no folders, so prefixes group the files.
 | `mgr.tower.js` | Focus fire, then heal, then repair (keeps an energy reserve) |
 | `mgr.link.js` | Source links → controller link / storage link |
 | `mgr.defense.js` | Safe mode when spawn/towers/storage are in danger |
-| `mgr.expansion.js` | Flag-driven claiming |
+| `mgr.expansion.js` | Automatic grid expansion + `claim` flags |
+| `mgr.intel.js` | Room intel in `Memory.intel` (from any vision) |
+| `core.rooms.js` | Room-name maths: grid, highways, keeper rooms |
 | `mgr.hud.js` | Overlay and console report |
 | `roles.js` | Role registry (also the execution order) |
-| `role.*.js` | `miner`, `hauler`, `filler`, `upgrader`, `builder`, `worker`, `defender`, `claimer` |
+| `role.*.js` | `miner`, `hauler`, `filler`, `upgrader`, `builder`, `worker`, `defender`, `claimer`, `scout` |
 
 ### Economy
 
@@ -84,12 +86,45 @@ is ever destroyed.
 To re-plan a room: `delete Memory.rooms.W1N1.plan`. To see the plan, set
 `visuals.plan: true` in config.
 
-## Expanding to a new room
+## Scouting and expansion (automatic)
 
-Place a flag named `claim` (or `claim2`, `claimFoo`, …) in the target room.
-The nearest colony at RCL ≥ 3 sends a claimer, then pioneer workers that build
-the new spawn. The flag removes itself when the spawn is done. You need a free
-GCL slot.
+Your first room is the **empire centre**. The bot fills the 3×3 grid around it
+(`expansion.gridRadius: 1`; set it to 2 for 5×5).
+
+1. **Scouting** (`role.scout`, `mgr.intel`): from RCL 2, the centre room sends
+   a 50-energy scout through every grid room it hasn't seen recently. For each
+   room it records sources, mineral, owner and reservation, keeper lairs,
+   invader cores, enemy towers, open and swamp terrain, and whether the room
+   can be reached at all. Rooms with no exit route, or that the scout can't
+   enter, are marked unreachable and checked again later.
+2. **Choosing a room** happens whenever GCL allows another room and no
+   expansion is running. The bot checks every grid room and skips any that:
+   - have no controller,
+   - are owned or reserved by someone else,
+   - have source keepers, an invader core or hostile towers,
+   - are highways, or
+   - are unreachable.
+
+   Of the rest, it picks the **fewest room hops from a room you own** first
+   (so rooms sharing an exit come before diagonals), then the **highest
+   score**: 50 per source, plus the mineral's value, plus a bonus for a
+   mineral you don't have yet, plus a bonus for open terrain.
+3. **Claiming:** the nearest colony at RCL ≥ 3 with at least 650 energy
+   capacity sends a claimer. Once the room is claimed, it sends 3 pioneers,
+   which harvest, build the new spawn and upgrade. After the spawn stands, the
+   new room runs its own economy and the next room is chosen.
+4. **If a claim fails** (3 claimers fail, or 5,000 ticks pass), that room is
+   skipped and tried again 10,000 ticks later.
+
+Rooms that only connect through another room become "adjacent" once that room
+is yours, so the grid fills from the edges inward.
+
+Type `expansionReport()` in the console to see every grid room with its hops,
+score and the reason it's being skipped. The room HUD shows the current target
+and rooms owned versus GCL.
+
+**Manual override:** a flag named `claim…` in any room claims it the same
+way, and the flag removes itself once that room's spawn is built.
 
 ## Adding a role
 
@@ -108,6 +143,7 @@ stalls.
 .\test\run.ps1 40000                                      # RCL 1 -> 4
 .\test\run.ps1 60000 --fast 25                            # through RCL 7 (faster controller progress)
 .\test\run.ps1 15000 --reset-every 500 --invader-at 9000 --legacy
+.\test\run.ps1 25000 --fast 25 --neighbors --gcl 3        # expansion choices with fake neighbour rooms
 .\test\run.ps1 plan                                       # ASCII base plan
 ```
 
@@ -119,4 +155,4 @@ Set `$env:DUMP=15000` before running to print every creep's state at that tick.
 - Ramparts around the core, and wall repair by builders
 - Labs, boosts and mineral mining (extractor and container are already planned)
 - Terminal energy balancing and market
-- Automatic expansion target scoring
+

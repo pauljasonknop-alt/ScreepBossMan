@@ -29,6 +29,11 @@ function lines(colony) {
   if (colony.lastQueue && colony.lastQueue.length) {
     out.push('next: ' + colony.lastQueue.slice(0, 3).map((r) => r.role).join(', '));
   }
+  const empire = Memory.empire;
+  if (empire && empire.center === colony.name) {
+    const owned = Object.keys(Game.rooms).filter((n) => Game.rooms[n].controller && Game.rooms[n].controller.my).length;
+    out.push(`expand: ${empire.target ? `claiming ${empire.target}` : 'idle'}   rooms ${owned}/GCL ${Game.gcl.level}`);
+  }
   if (colony.threats.length) {
     out.push(`THREATS: ${colony.threats.length}`);
   }

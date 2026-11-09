@@ -12,9 +12,10 @@ console.log = () => {};
 require('./sim.js');
 console.log = origLog;
 
-const plan = Memory.rooms.W1N1.plan;
+const ROOM = Object.keys(Memory.rooms)[0];
+const plan = Memory.rooms[ROOM].plan;
 const grid = [];
-const terrain = Game.map.getRoomTerrain('W1N1');
+const terrain = Game.map.getRoomTerrain(ROOM);
 for (let y = 0; y < 50; y++) {
   grid.push([]);
   for (let x = 0; x < 50; x++) grid[y].push(['.', '#', '~'][terrain.get(x, y)]);
@@ -31,10 +32,10 @@ for (const id of Object.keys(plan.src)) {
 put(plan.ctrl.c, 'C');
 if (plan.ctrl.l !== undefined) put(plan.ctrl.l, 'L');
 if (plan.min.c !== undefined) put(plan.min.c, 'C');
-for (const s of Game.rooms.W1N1.find(FIND_SOURCES)) grid[s.pos.y][s.pos.x] = '@';
-const m = Game.rooms.W1N1.find(FIND_MINERALS)[0];
+for (const s of Game.rooms[ROOM].find(FIND_SOURCES)) grid[s.pos.y][s.pos.x] = '@';
+const m = Game.rooms[ROOM].find(FIND_MINERALS)[0];
 grid[m.pos.y][m.pos.x] = 'm';
-const c = Game.rooms.W1N1.controller;
+const c = Game.rooms[ROOM].controller;
 grid[c.pos.y][c.pos.x] = 'K';
 console.log(grid.map((r) => r.join('')).join('\n'));
 console.log(`extensions ${plan.extension.length}, towers ${plan.tower.length}, spawns ${plan.spawn.length}, ` +

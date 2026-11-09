@@ -13,6 +13,7 @@ module.exports = {
   hauler: require('./role.hauler'),
   worker: require('./role.worker'),
   claimer: require('./role.claimer'),
+  scout: require('./role.scout'),
   upgrader: require('./role.upgrader'),
   builder: require('./role.builder'),
 };

@@ -68,10 +68,19 @@ module.exports = {
   },
 
   expansion: {
-    // Flags named `claim...` mark rooms to claim. The nearest colony with at
-    // least this RCL and within this linear distance supports it.
+    // Automatically claim rooms in the grid around the first room whenever
+    // GCL allows (see mgr.expansion). Flags named `claim...` always work too.
+    auto: true,
+    gridRadius: 1, // 1 = 3x3 grid (8 neighbours), 2 = 5x5
+    // A colony needs this RCL (and 650 energy capacity) to send claimers and
+    // pioneers, and must be within this linear room distance of the target.
     minSupportRcl: 3,
     maxDistance: 10,
     pioneers: 3,
+    scoutInterval: 3000, // re-scout grid rooms after this many ticks
+    unreachableRetry: 20000, // re-check rooms a scout couldn't reach
+    claimTimeout: 5000, // give up a target if not claimed in time
+    maxClaimers: 3, // ...or after this many claimers failed to claim it
+    failedRetry: 10000, // ...and try that room again after this long
   },
 };

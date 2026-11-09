@@ -23,12 +23,16 @@ const links = require('./mgr.link');
 const defense = require('./mgr.defense');
 const expansion = require('./mgr.expansion');
 const hud = require('./mgr.hud');
+const intel = require('./mgr.intel');
 
 const ROLE_ORDER = Object.keys(roles);
 const YIELD_ROLES = {upgrader: true, builder: true};
 const DELEGATED_ROLES = {worker: true, defender: true};
 
 const colonies = {}; // heap; rebuilt after a global reset
+
+// Console helper: expansionReport()
+global.expansionReport = () => expansion.report(Object.values(colonies));
 
 log.info('main', `global reset (cpu ${Game.cpu.getUsed().toFixed(1)}, bucket ${Game.cpu.bucket})`);
 
@@ -96,19 +100,6 @@ function assignCreeps() {
   }
 }
 
-function updateIntel() {
-  if (Game.time % 20 !== 0) return;
-  if (!Memory.intel) Memory.intel = {};
-  for (const name in Game.rooms) {
-    const c = Game.rooms[name].controller;
-    if (c && c.owner && !c.my) {
-      Memory.intel[name] = {owner: c.owner.username, level: c.level, t: Game.time};
-    } else if (Memory.intel[name]) {
-      delete Memory.intel[name];
-    }
-  }
-}
-
 function delegateSpawnless(list) {
   for (const colony of list) {
     if (colony.spawns.length) continue;
@@ -151,7 +142,7 @@ module.exports.loop = function() {
   cleanMemory();
   const list = syncColonies();
   assignCreeps();
-  updateIntel();
+  log.safe('intel', () => intel.run());
 
   for (const colony of list) {
     log.safe(`defense ${colony.name}`, () => defense.run(colony));

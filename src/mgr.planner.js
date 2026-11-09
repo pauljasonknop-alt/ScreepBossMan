@@ -298,7 +298,11 @@ function makePlan(room) {
 
 function ensurePlan(colony) {
   const plan = colony.memory.plan;
-  if (plan && plan.v === PLAN_VERSION) {
+  // Stale plan (e.g. after a respawn): a spawn exists but not at the anchor.
+  const spawns = colony.spawns;
+  const stale = plan && spawns.length &&
+    !spawns.some((s) => s.pos.y * 50 + s.pos.x === plan.anchor);
+  if (plan && plan.v === PLAN_VERSION && !stale) {
     return plan;
   }
   const start = Game.cpu.getUsed();
